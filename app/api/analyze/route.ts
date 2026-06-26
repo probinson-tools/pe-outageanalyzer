@@ -1,29 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+export const maxDuration = 60;
 
-export const maxDuration = 120;
+function jsonError(message: string, status = 500) {
+  return NextResponse.json({ error: message }, { status });
+}
 
 export async function POST(req: NextRequest) {
-  const { logContent, outageTime, fileName } = await req.json();
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body) return jsonError("Invalid request body.", 400);
 
-  if (!logContent || !outageTime) {
-    return NextResponse.json({ error: "logContent and outageTime are required." }, { status: 400 });
-  }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not configured." }, { status: 500 });
-  }
+    const { logContent, outageTime, fileName } = body;
+    if (!logContent || !outageTime) return jsonError("logContent and outageTime are required.", 400);
 
-  const prompt = `You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report.
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return jsonError("ANTHROPIC_API_KEY is not configured on the server.", 500);
+
+    const client = new Anthropic({ apiKey });
+
+    // Trim log content to keep prompt within a safe token budget (~120k chars ≈ ~30k tokens)
+    const trimmedLog = logContent.length > 120000
+      ? logContent.slice(0, 120000) + "\n\n[...log truncated for analysis...]"
+      : logContent;
+
+    const prompt = `You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report.
 
 OUTAGE TIME PROVIDED BY USER: ${outageTime}
 LOG FILE NAME: ${fileName}
 
 LOG DATA:
-${logContent}
+${trimmedLog}
 
-Return ONLY valid JSON (no markdown, no explanation outside the JSON) matching exactly this structure:
+Return ONLY valid JSON (no markdown fences, no explanation outside the JSON) matching exactly this structure:
 
 {
   "summary": {
@@ -41,17 +51,17 @@ Return ONLY valid JSON (no markdown, no explanation outside the JSON) matching e
       "type": "<error class/type>",
       "count": <integer>,
       "severity": "critical|high|medium|low",
-      "firstSeen": "<timestamp or 'unknown'>",
-      "lastSeen": "<timestamp or 'unknown'>",
+      "firstSeen": "<timestamp or unknown>",
+      "lastSeen": "<timestamp or unknown>",
       "sample": "<representative log line, max 200 chars>"
     }
   ],
   "bots": [
     {
-      "ip": "<IP or 'unknown'>",
+      "ip": "<IP or unknown>",
       "requests": <integer>,
-      "userAgent": "<UA string or 'unknown'>",
-      "classification": "<scanner|crawler|ddos|brute-force|normal|suspicious>",
+      "userAgent": "<UA string or unknown>",
+      "classification": "scanner|crawler|ddos|brute-force|suspicious|normal",
       "threat": "high|medium|low"
     }
   ],
@@ -61,7 +71,7 @@ Return ONLY valid JSON (no markdown, no explanation outside the JSON) matching e
       "errors": <integer>,
       "warnings": <integer>,
       "requests": <integer>,
-      "memoryPressure": <0-100 integer representing estimated memory pressure at that time>
+      "memoryPressure": <0-100 integer>
     }
   ],
   "patterns": [
@@ -83,9 +93,9 @@ Return ONLY valid JSON (no markdown, no explanation outside the JSON) matching e
   ],
   "severityDistribution": [
     { "name": "Critical", "value": <integer>, "color": "#ef4444" },
-    { "name": "High", "value": <integer>, "color": "#f97316" },
-    { "name": "Medium", "value": <integer>, "color": "#eab308" },
-    { "name": "Low", "value": <integer>, "color": "#22c55e" }
+    { "name": "High",     "value": <integer>, "color": "#f97316" },
+    { "name": "Medium",   "value": <integer>, "color": "#eab308" },
+    { "name": "Low",      "value": <integer>, "color": "#22c55e" }
   ],
   "categoryBreakdown": [
     { "name": "<category>", "count": <integer> }
@@ -93,38 +103,35 @@ Return ONLY valid JSON (no markdown, no explanation outside the JSON) matching e
 }
 
 Rules:
-- timeline must have 8-24 entries representing time progression through the logs
-- errors must have at least 1 entry, up to 20 most significant
-- bots must have 0-15 entries (only include if suspicious traffic is detected)
-- patterns must have 3-10 entries
-- recommendations must have 5-10 entries
-- synopsis must be detailed, technical, and reference specific patterns found in the logs
-- If logs show no clear bots, return empty bots array []
-- memoryPressure values must tell a story — they should escalate toward the outage time
-- All counts must be realistic integers based on actual log analysis`;
+- timeline: 8-24 entries showing time progression; memoryPressure must escalate toward outage time
+- errors: 1-20 most significant distinct types
+- bots: 0-15 entries; empty array [] if no suspicious traffic found
+- patterns: 3-10 entries
+- recommendations: 5-10 entries
+- synopsis: technical, multi-paragraph, reference specific patterns from the logs
+- All numeric values must be realistic integers derived from actual log content`;
 
-  try {
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8192,
+      max_tokens: 8000,
       messages: [{ role: "user", content: prompt }],
     });
 
-    const raw = message.content[0].type === "text" ? message.content[0].text : "";
+    const raw = message.content[0]?.type === "text" ? message.content[0].text : "";
 
-    // Extract JSON from the response (handle any accidental markdown wrapping)
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    // Strip any accidental markdown code fences
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return NextResponse.json({ error: "Claude returned an unexpected response format." }, { status: 500 });
+      console.error("Claude raw response:", raw.slice(0, 500));
+      return jsonError("Claude returned an unexpected response format. Please try again.");
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
     return NextResponse.json(parsed);
   } catch (err) {
     console.error("Analysis error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Analysis failed" },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : "Analysis failed";
+    return jsonError(message);
   }
 }

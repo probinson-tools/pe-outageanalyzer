@@ -24,11 +24,20 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ logContent, outageTime, fileName }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Analysis failed");
+      const text = await res.text();
+      let data: AnalysisResult;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(
+          res.ok
+            ? "Server returned an unexpected response. Please try again."
+            : `Server error (${res.status}): ${text.slice(0, 200)}`
+        );
       }
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error || `Request failed with status ${res.status}`);
+      }
       setResult(data);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     } catch (e) {
