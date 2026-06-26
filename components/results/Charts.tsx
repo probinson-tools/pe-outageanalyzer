@@ -1,8 +1,19 @@
 "use client";
 
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, BarChart, Bar, Legend,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  Legend,
 } from "recharts";
 import type { AnalysisResult } from "@/lib/types";
 
@@ -20,7 +31,16 @@ const TOOLTIP_STYLE = {
   fontSize: "12px",
 };
 
+const BAR_COLORS = [
+  "#60a5fa", "#f472b6", "#34d399", "#fb923c",
+  "#a78bfa", "#facc15", "#38bdf8", "#4ade80",
+];
+
 export default function Charts({ timeline, severityDistribution, categoryBreakdown }: Props) {
+  if (!timeline?.length || !severityDistribution?.length || !categoryBreakdown?.length) {
+    return null;
+  }
+
   return (
     <div className="space-y-6">
       {/* Timeline area chart */}
@@ -50,7 +70,7 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
             <Legend wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
             <Area type="monotone" dataKey="errors" name="Errors" stroke="#ef4444" fill="url(#errGrad)" strokeWidth={2} dot={false} />
             <Area type="monotone" dataKey="warnings" name="Warnings" stroke="#eab308" fill="url(#warnGrad)" strokeWidth={1.5} dot={false} />
-            <Area type="monotone" dataKey="memoryPressure" name="Memory Pressure %" stroke="#a855f7" fill="url(#memGrad)" strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="memoryPressure" name="Memory %" stroke="#a855f7" fill="url(#memGrad)" strokeWidth={2} dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -74,15 +94,11 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
                 nameKey="name"
               >
                 {severityDistribution.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} opacity={0.9} />
+                  <Cell key={`cell-${i}`} fill={entry.color} />
                 ))}
               </Pie>
               <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }}
-              />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -99,7 +115,7 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
               <Tooltip contentStyle={TOOLTIP_STYLE} />
               <Bar dataKey="count" name="Events" radius={[4, 4, 0, 0]}>
                 {categoryBreakdown.map((_, i) => (
-                  <Cell key={i} fill={`hsl(${(i * 47 + 210) % 360}, 70%, 60%)`} opacity={0.85} />
+                  <Cell key={`bar-cell-${i}`} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>

@@ -12,6 +12,7 @@ const IMPACT_STYLES: Record<string, { badge: string; bar: string }> = {
 interface Props { patterns: AnalysisResult["patterns"] }
 
 export default function PatternList({ patterns }: Props) {
+  if (!patterns?.length) return null;
   const maxOcc = Math.max(...patterns.map((p) => p.occurrences), 1);
 
   return (

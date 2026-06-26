@@ -19,6 +19,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 interface Props { recommendations: AnalysisResult["recommendations"] }
 
 export default function Recommendations({ recommendations }: Props) {
+  if (!recommendations?.length) return null;
   const sorted = [...recommendations].sort(
     (a, b) => (PRIORITY_STYLES[a.priority]?.order ?? 99) - (PRIORITY_STYLES[b.priority]?.order ?? 99)
   );

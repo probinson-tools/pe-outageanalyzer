@@ -12,6 +12,7 @@ const SEVERITY_STYLES: Record<string, string> = {
 interface Props { errors: AnalysisResult["errors"] }
 
 export default function ErrorTable({ errors }: Props) {
+  if (!errors?.length) return null;
   return (
     <div className="glass rounded-2xl p-6">
       <h3 className="text-white font-semibold mb-1">Errors &amp; Exceptions</h3>
