@@ -24,19 +24,37 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ logContent, outageTime, fileName }),
       });
-      const text = await res.text();
+
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        let msg = `Server error (${res.status})`;
+        try { msg = JSON.parse(text).error || msg; } catch { /* plain text */ }
+        throw new Error(msg);
+      }
+
+      // Accumulate the streamed response, then parse JSON once complete
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+      }
+
       let data: AnalysisResult;
       try {
-        data = JSON.parse(text);
-      } catch {
+        const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON found in response.");
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.__error) throw new Error(parsed.__error);
+        data = parsed;
+      } catch (parseErr) {
         throw new Error(
-          res.ok
-            ? "Server returned an unexpected response. Please try again."
-            : `Server error (${res.status}): ${text.slice(0, 200)}`
+          parseErr instanceof Error && parseErr.message !== "No JSON found in response."
+            ? parseErr.message
+            : "Server returned an unexpected response. Please try again."
         );
-      }
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error || `Request failed with status ${res.status}`);
       }
       setResult(data);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);

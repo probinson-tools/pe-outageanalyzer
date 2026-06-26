@@ -1,28 +1,38 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
 export const maxDuration = 60;
 
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ error: message }, { status });
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body) return jsonError("Invalid request body.", 400);
+    if (!body) {
+      return new Response(JSON.stringify({ error: "Invalid request body." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const { logContent, outageTime, fileName } = body;
-    if (!logContent || !outageTime) return jsonError("logContent and outageTime are required.", 400);
+    if (!logContent || !outageTime) {
+      return new Response(JSON.stringify({ error: "logContent and outageTime are required." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return jsonError("ANTHROPIC_API_KEY is not configured on the server.", 500);
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured on the server." }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const client = new Anthropic({ apiKey });
 
-    // Trim log content to keep prompt within a safe token budget (~120k chars ≈ ~30k tokens)
-    const trimmedLog = logContent.length > 120000
-      ? logContent.slice(0, 120000) + "\n\n[...log truncated for analysis...]"
+    const trimmedLog = logContent.length > 100000
+      ? logContent.slice(0, 100000) + "\n\n[...log truncated for analysis...]"
       : logContent;
 
     const prompt = `You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report.
@@ -33,7 +43,7 @@ LOG FILE NAME: ${fileName}
 LOG DATA:
 ${trimmedLog}
 
-Return ONLY valid JSON (no markdown fences, no explanation outside the JSON) matching exactly this structure:
+Return ONLY valid JSON (no markdown fences, no text outside the JSON object) matching exactly this structure:
 
 {
   "summary": {
@@ -103,35 +113,55 @@ Return ONLY valid JSON (no markdown fences, no explanation outside the JSON) mat
 }
 
 Rules:
-- timeline: 8-24 entries showing time progression; memoryPressure must escalate toward outage time
+- timeline: 8-24 entries; memoryPressure must escalate toward the outage time
 - errors: 1-20 most significant distinct types
 - bots: 0-15 entries; empty array [] if no suspicious traffic found
 - patterns: 3-10 entries
 - recommendations: 5-10 entries
-- synopsis: technical, multi-paragraph, reference specific patterns from the logs
+- synopsis: technical, multi-paragraph, reference specific patterns found in the logs
 - All numeric values must be realistic integers derived from actual log content`;
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8000,
-      messages: [{ role: "user", content: prompt }],
+    // Stream the response so the connection stays alive past Vercel's idle timeout
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const anthropicStream = client.messages.stream({
+            model: "claude-sonnet-4-6",
+            max_tokens: 8000,
+            messages: [{ role: "user", content: prompt }],
+          });
+
+          for await (const chunk of anthropicStream) {
+            if (
+              chunk.type === "content_block_delta" &&
+              chunk.delta.type === "text_delta"
+            ) {
+              controller.enqueue(encoder.encode(chunk.delta.text));
+            }
+          }
+          controller.close();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Analysis failed";
+          // Send a JSON error object so the client can detect it
+          controller.enqueue(encoder.encode(`{"__error":"${message.replace(/"/g, "'")}"}`));
+          controller.close();
+        }
+      },
     });
 
-    const raw = message.content[0]?.type === "text" ? message.content[0].text : "";
-
-    // Strip any accidental markdown code fences
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Claude raw response:", raw.slice(0, 500));
-      return jsonError("Claude returned an unexpected response format. Please try again.");
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return NextResponse.json(parsed);
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-cache",
+      },
+    });
   } catch (err) {
-    console.error("Analysis error:", err);
     const message = err instanceof Error ? err.message : "Analysis failed";
-    return jsonError(message);
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
