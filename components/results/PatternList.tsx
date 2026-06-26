@@ -2,6 +2,8 @@
 
 import type { AnalysisResult } from "@/lib/types";
 
+const FALLBACK_IMPACT = { badge: "bg-white/10 text-white/50 border-white/20", bar: "bg-white/30" };
+
 const IMPACT_STYLES: Record<string, { badge: string; bar: string }> = {
   critical: { badge: "bg-red-500/15 text-red-400 border-red-500/30", bar: "bg-red-500" },
   high: { badge: "bg-orange-500/15 text-orange-400 border-orange-500/30", bar: "bg-orange-500" },
@@ -21,7 +23,7 @@ export default function PatternList({ patterns }: Props) {
       <p className="text-white/40 text-xs mb-6">{patterns.length} recurring patterns identified in log data</p>
       <div className="grid md:grid-cols-2 gap-4">
         {patterns.map((p, i) => {
-          const styles = IMPACT_STYLES[p.impact];
+          const styles = IMPACT_STYLES[p.impact] ?? FALLBACK_IMPACT;
           const pct = Math.round((p.occurrences / maxOcc) * 100);
           return (
             <div key={i} className="rounded-xl bg-white/3 border border-white/6 p-4 space-y-3">

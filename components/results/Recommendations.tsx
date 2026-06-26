@@ -2,11 +2,20 @@
 
 import type { AnalysisResult } from "@/lib/types";
 
+const FALLBACK_STYLE = { badge: "bg-white/10 text-white/50 border-white/20", dot: "bg-white/40", order: 99 };
+
 const PRIORITY_STYLES: Record<string, { badge: string; dot: string; order: number }> = {
   immediate: { badge: "bg-red-500/15 text-red-400 border-red-500/30", dot: "bg-red-400", order: 0 },
+  urgent: { badge: "bg-red-500/15 text-red-400 border-red-500/30", dot: "bg-red-400", order: 0 },
   "short-term": { badge: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", dot: "bg-yellow-400", order: 1 },
+  short_term: { badge: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", dot: "bg-yellow-400", order: 1 },
   "long-term": { badge: "bg-blue-500/15 text-blue-400 border-blue-500/30", dot: "bg-blue-400", order: 2 },
+  long_term: { badge: "bg-blue-500/15 text-blue-400 border-blue-500/30", dot: "bg-blue-400", order: 2 },
 };
+
+function getPriorityStyle(priority: string) {
+  return PRIORITY_STYLES[priority] ?? PRIORITY_STYLES[priority?.replace(/_/g, "-")] ?? FALLBACK_STYLE;
+}
 
 const CATEGORY_ICONS: Record<string, string> = {
   memory: "💾",
@@ -44,7 +53,7 @@ export default function Recommendations({ recommendations }: Props) {
 
       <div className="space-y-3">
         {sorted.map((rec, i) => {
-          const styles = PRIORITY_STYLES[rec.priority];
+          const styles = getPriorityStyle(rec.priority);
           return (
             <div key={i} className="rounded-xl bg-white/3 border border-white/6 p-4 flex gap-4">
               <div className="flex flex-col items-center pt-1 gap-2">

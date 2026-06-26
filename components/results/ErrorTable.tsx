@@ -8,6 +8,7 @@ const SEVERITY_STYLES: Record<string, string> = {
   medium: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
   low: "bg-green-500/15 text-green-400 border-green-500/30",
 };
+const FALLBACK_SEVERITY = "bg-white/10 text-white/50 border-white/20";
 
 interface Props { errors: AnalysisResult["errors"] }
 
@@ -22,7 +23,7 @@ export default function ErrorTable({ errors }: Props) {
           <div key={i} className="rounded-lg bg-white/3 border border-white/6 p-3 space-y-1.5">
             <div className="flex items-start justify-between gap-2">
               <span className="text-white text-sm font-medium leading-tight">{err.type}</span>
-              <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium ${SEVERITY_STYLES[err.severity]}`}>
+              <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium ${SEVERITY_STYLES[err.severity] ?? FALLBACK_SEVERITY}`}>
                 {err.severity}
               </span>
             </div>
