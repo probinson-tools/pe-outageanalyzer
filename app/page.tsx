@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import UploadPanel from "@/components/UploadPanel";
 import AnalysisResults from "@/components/AnalysisResults";
 import type { AnalysisResult } from "@/lib/types";
+import { repairJson } from "@/lib/repairJson";
 
 const LoadingOverlay = dynamic(() => import("@/components/LoadingOverlay"), { ssr: false });
 
@@ -25,14 +26,14 @@ export default function Home() {
         body: JSON.stringify({ logContent, outageTime, fileName }),
       });
 
-      if (!res.ok || !res.body) {
+      if (!res.body) {
         const text = await res.text().catch(() => "");
         let msg = `Server error (${res.status})`;
-        try { msg = JSON.parse(text).error || msg; } catch { /* plain text */ }
+        try { msg = JSON.parse(text).__error || JSON.parse(text).error || msg; } catch { /* plain text */ }
         throw new Error(msg);
       }
 
-      // Accumulate the streamed response, then parse JSON once complete
+      // Read streaming chunks until done, then parse the accumulated JSON
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
@@ -44,13 +45,15 @@ export default function Home() {
 
       let data: AnalysisResult;
       try {
-        const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+        // Repair any truncated JSON (unclosed brackets from a mid-stream stop)
+        const repaired = repairJson(fullText);
+        const jsonMatch = repaired.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON found in response.");
         const parsed = JSON.parse(jsonMatch[0]);
         if (parsed.__error) throw new Error(parsed.__error as string);
         data = parsed as AnalysisResult;
       } catch (parseErr) {
-        console.error("Parse error. Raw response (first 500 chars):", fullText.slice(0, 500));
+        console.error("Parse error. First 500 chars:", fullText.slice(0, 500));
         throw new Error(
           parseErr instanceof Error ? parseErr.message : "Server returned an unexpected response. Please try again."
         );

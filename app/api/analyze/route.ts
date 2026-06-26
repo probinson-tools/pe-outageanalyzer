@@ -1,157 +1,125 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { repairJson } from "@/lib/repairJson";
 
+export const runtime = "edge";
 export const maxDuration = 60;
+
+function errorResponse(message: string, status = 500) {
+  return new Response(JSON.stringify({ __error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body) {
-      return new Response(JSON.stringify({ error: "Invalid request body." }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    if (!body) return errorResponse("Invalid request body.", 400);
 
-    const { logContent, outageTime, fileName } = body;
+    const { logContent, outageTime, fileName } = body as {
+      logContent: string;
+      outageTime: string;
+      fileName: string;
+    };
+
     if (!logContent || !outageTime) {
-      return new Response(JSON.stringify({ error: "logContent and outageTime are required." }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return errorResponse("logContent and outageTime are required.", 400);
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured on the server." }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    if (!apiKey) return errorResponse("ANTHROPIC_API_KEY is not configured.", 500);
 
     const client = new Anthropic({ apiKey });
 
-    const trimmedLog = logContent.length > 100000
-      ? logContent.slice(0, 100000) + "\n\n[...log truncated for analysis...]"
-      : logContent;
+    // Keep log content tight to ensure fast, complete responses
+    const trimmedLog =
+      logContent.length > 80000
+        ? logContent.slice(0, 80000) + "\n\n[...log truncated...]"
+        : logContent;
 
     const prompt = `You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report.
 
-OUTAGE TIME PROVIDED BY USER: ${outageTime}
-LOG FILE NAME: ${fileName}
+OUTAGE TIME: ${outageTime}
+FILE: ${fileName}
 
 LOG DATA:
 ${trimmedLog}
 
-Return ONLY valid JSON (no markdown fences, no text outside the JSON object) matching exactly this structure:
+Return ONLY a single valid JSON object — no markdown, no text before or after. Use this exact structure:
 
 {
   "summary": {
-    "totalErrors": <integer>,
-    "totalWarnings": <integer>,
-    "criticalEvents": <integer>,
-    "timespan": "<earliest timestamp> to <latest timestamp>",
+    "totalErrors": 0,
+    "totalWarnings": 0,
+    "criticalEvents": 0,
+    "timespan": "start to end",
     "outageTime": "${outageTime}",
     "fileName": "${fileName}",
-    "topErrorType": "<most frequent error type>",
-    "estimatedCause": "<one sentence root cause>"
+    "topErrorType": "string",
+    "estimatedCause": "one sentence"
   },
   "errors": [
-    {
-      "type": "<error class/type>",
-      "count": <integer>,
-      "severity": "critical|high|medium|low",
-      "firstSeen": "<timestamp or unknown>",
-      "lastSeen": "<timestamp or unknown>",
-      "sample": "<representative log line, max 200 chars>"
-    }
+    { "type": "string", "count": 0, "severity": "critical", "firstSeen": "string", "lastSeen": "string", "sample": "string" }
   ],
   "bots": [
-    {
-      "ip": "<IP or unknown>",
-      "requests": <integer>,
-      "userAgent": "<UA string or unknown>",
-      "classification": "scanner|crawler|ddos|brute-force|suspicious|normal",
-      "threat": "high|medium|low"
-    }
+    { "ip": "string", "requests": 0, "userAgent": "string", "classification": "scanner", "threat": "high" }
   ],
   "timeline": [
-    {
-      "time": "<HH:MM label>",
-      "errors": <integer>,
-      "warnings": <integer>,
-      "requests": <integer>,
-      "memoryPressure": <0-100 integer>
-    }
+    { "time": "HH:MM", "errors": 0, "warnings": 0, "requests": 0, "memoryPressure": 0 }
   ],
   "patterns": [
-    {
-      "name": "<pattern name>",
-      "description": "<what this pattern indicates>",
-      "occurrences": <integer>,
-      "impact": "critical|high|medium|low"
-    }
+    { "name": "string", "description": "string", "occurrences": 0, "impact": "critical" }
   ],
-  "synopsis": "<3-5 paragraph detailed narrative of what happened, focusing on memory exhaustion cause, event sequence, and contributing factors>",
+  "synopsis": "3-5 paragraph narrative of root cause and event sequence",
   "recommendations": [
-    {
-      "title": "<action title>",
-      "description": "<detailed description of the fix>",
-      "priority": "immediate|short-term|long-term",
-      "category": "memory|security|performance|monitoring|configuration"
-    }
+    { "title": "string", "description": "string", "priority": "immediate", "category": "memory" }
   ],
   "severityDistribution": [
-    { "name": "Critical", "value": <integer>, "color": "#ef4444" },
-    { "name": "High",     "value": <integer>, "color": "#f97316" },
-    { "name": "Medium",   "value": <integer>, "color": "#eab308" },
-    { "name": "Low",      "value": <integer>, "color": "#22c55e" }
+    { "name": "Critical", "value": 0, "color": "#ef4444" },
+    { "name": "High",     "value": 0, "color": "#f97316" },
+    { "name": "Medium",   "value": 0, "color": "#eab308" },
+    { "name": "Low",      "value": 0, "color": "#22c55e" }
   ],
   "categoryBreakdown": [
-    { "name": "<category>", "count": <integer> }
+    { "name": "string", "count": 0 }
   ]
 }
 
-Rules:
-- timeline: 8-24 entries; memoryPressure must escalate toward the outage time
-- errors: 1-20 most significant distinct types
-- bots: 0-15 entries; empty array [] if no suspicious traffic found
-- patterns: 3-10 entries
-- recommendations: 5-10 entries
-- synopsis: technical, multi-paragraph, reference specific patterns found in the logs
-- All numeric values must be realistic integers derived from actual log content`;
+Constraints:
+- timeline: 8-16 entries with memoryPressure escalating toward the outage time
+- errors: 1-15 most significant types
+- bots: 0-10 entries; [] if none found
+- patterns: 3-8 entries
+- recommendations: 5-8 entries
+- synopsis: detailed, technical, referencing specific patterns in these logs
+- All numbers must be real integers derived from the log content`;
 
-    // Stream Claude's response, accumulate it fully, repair if truncated, then send as JSON
     const encoder = new TextEncoder();
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const anthropicStream = client.messages.stream({
-            model: "claude-sonnet-4-6",
-            max_tokens: 16000,
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 8000,
             messages: [{ role: "user", content: prompt }],
           });
 
-          let accumulated = "";
           for await (const chunk of anthropicStream) {
             if (
               chunk.type === "content_block_delta" &&
-              chunk.delta.type === "text_delta"
+              chunk.delta.type === "text_delta" &&
+              chunk.delta.text
             ) {
-              accumulated += chunk.delta.text;
-              // Send a heartbeat byte every chunk so Vercel doesn't idle-timeout
-              controller.enqueue(encoder.encode(""));
+              controller.enqueue(encoder.encode(chunk.delta.text));
             }
           }
-
-          // Repair any truncated JSON before sending to the client
-          const repaired = repairJson(accumulated);
-          controller.enqueue(encoder.encode(repaired));
           controller.close();
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Analysis failed";
-          controller.enqueue(encoder.encode(`{"__error":"${message.replace(/"/g, "'")}"}`));
+          const msg = err instanceof Error ? err.message : "Analysis failed";
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ __error: msg }))
+          );
           controller.close();
         }
       },
@@ -160,15 +128,12 @@ Rules:
     return new Response(stream, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Analysis failed";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    const msg = err instanceof Error ? err.message : "Analysis failed";
+    return errorResponse(msg);
   }
 }
