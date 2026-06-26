@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { repairJson } from "@/lib/repairJson";
 
 export const maxDuration = 60;
 
@@ -121,29 +122,35 @@ Rules:
 - synopsis: technical, multi-paragraph, reference specific patterns found in the logs
 - All numeric values must be realistic integers derived from actual log content`;
 
-    // Stream the response so the connection stays alive past Vercel's idle timeout
+    // Stream Claude's response, accumulate it fully, repair if truncated, then send as JSON
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const anthropicStream = client.messages.stream({
             model: "claude-sonnet-4-6",
-            max_tokens: 8000,
+            max_tokens: 16000,
             messages: [{ role: "user", content: prompt }],
           });
 
+          let accumulated = "";
           for await (const chunk of anthropicStream) {
             if (
               chunk.type === "content_block_delta" &&
               chunk.delta.type === "text_delta"
             ) {
-              controller.enqueue(encoder.encode(chunk.delta.text));
+              accumulated += chunk.delta.text;
+              // Send a heartbeat byte every chunk so Vercel doesn't idle-timeout
+              controller.enqueue(encoder.encode(""));
             }
           }
+
+          // Repair any truncated JSON before sending to the client
+          const repaired = repairJson(accumulated);
+          controller.enqueue(encoder.encode(repaired));
           controller.close();
         } catch (err) {
           const message = err instanceof Error ? err.message : "Analysis failed";
-          // Send a JSON error object so the client can detect it
           controller.enqueue(encoder.encode(`{"__error":"${message.replace(/"/g, "'")}"}`));
           controller.close();
         }

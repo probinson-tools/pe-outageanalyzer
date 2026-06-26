@@ -47,13 +47,12 @@ export default function Home() {
         const jsonMatch = fullText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON found in response.");
         const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.__error) throw new Error(parsed.__error);
-        data = parsed;
+        if (parsed.__error) throw new Error(parsed.__error as string);
+        data = parsed as AnalysisResult;
       } catch (parseErr) {
+        console.error("Parse error. Raw response (first 500 chars):", fullText.slice(0, 500));
         throw new Error(
-          parseErr instanceof Error && parseErr.message !== "No JSON found in response."
-            ? parseErr.message
-            : "Server returned an unexpected response. Please try again."
+          parseErr instanceof Error ? parseErr.message : "Server returned an unexpected response. Please try again."
         );
       }
       setResult(data);
