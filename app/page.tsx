@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import UploadPanel from "@/components/UploadPanel";
 import AnalysisResults from "@/components/AnalysisResults";
 import type { AnalysisResult } from "@/lib/types";
@@ -73,8 +74,16 @@ export default function Home() {
 
       {/* Header */}
       <header className="border-b border-white/8 bg-[#1A1D2E] sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-3 relative flex items-center justify-between">
           <span className="text-base font-bold text-slate-100 tracking-tight">PE Outage Analyzer</span>
+          <Image
+            src="/logo-marketfully-dark.svg"
+            alt="Marketfully"
+            width={119}
+            height={28}
+            priority
+            className="hidden md:block absolute left-1/2 -translate-x-1/2"
+          />
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse-slow"></span>
             <span className="text-slate-500 text-xs">Powered by Claude</span>
