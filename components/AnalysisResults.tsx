@@ -19,7 +19,7 @@ export default function AnalysisResults({ result }: Props) {
       {/* Section header */}
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-white/8"></div>
-        <span className="text-white/40 text-xs font-medium uppercase tracking-widest px-2">Analysis Report</span>
+        <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Analysis Report</span>
         <div className="h-px flex-1 bg-white/8"></div>
       </div>
 

@@ -68,24 +68,16 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0f1117]">
+    <main className="min-h-screen bg-[#0F1117]">
       {loading && <LoadingOverlay />}
 
       {/* Header */}
-      <header className="border-b border-white/8 bg-[#0f1117]/80 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center">
-            <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-white font-semibold text-lg leading-none">Outage Analyzer</h1>
-            <p className="text-white/40 text-xs mt-0.5">AI-Powered Log Diagnosis</p>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
+      <header className="border-b border-white/8 bg-[#1A1D2E] sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+          <span className="text-base font-bold text-slate-100 tracking-tight">PE Outage Analyzer</span>
+          <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse-slow"></span>
-            <span className="text-white/40 text-xs">Powered by Claude</span>
+            <span className="text-slate-500 text-xs">Powered by Claude</span>
           </div>
         </div>
       </header>
@@ -93,10 +85,10 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-6 py-10 space-y-10">
         {/* Hero */}
         <div className="text-center space-y-3">
-          <h2 className="text-3xl font-bold text-white">
-            Diagnose Server Outages <span className="text-red-400">Instantly</span>
+          <h2 className="text-3xl font-bold text-slate-100">
+            Diagnose Server Outages <span className="text-blue-400">Instantly</span>
           </h2>
-          <p className="text-white/50 max-w-xl mx-auto text-sm leading-relaxed">
+          <p className="text-slate-500 max-w-xl mx-auto text-sm leading-relaxed">
             Upload your log ZIP archive and outage timestamp. Claude AI will analyze errors, detect malicious patterns,
             generate visual timelines, and deliver actionable recommendations.
           </p>
@@ -107,7 +99,7 @@ export default function Home() {
 
         {/* Error */}
         {error && (
-          <div className="glass rounded-xl p-4 border-red-500/30 bg-red-500/5 text-red-400 text-sm flex items-start gap-3">
+          <div className="rounded-xl p-4 border border-red-500/20 bg-red-500/10 text-red-400 text-sm flex items-start gap-3">
             <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -123,7 +115,7 @@ export default function Home() {
         )}
       </div>
 
-      <footer className="border-t border-white/8 mt-20 py-6 text-center text-white/25 text-xs">
+      <footer className="border-t border-white/8 mt-20 py-6 text-center text-slate-600 text-xs">
         PE Outage Analyzer · Built with Next.js &amp; Claude AI
       </footer>
     </main>

@@ -34,7 +34,7 @@ export default function Recommendations({ recommendations }: Props) {
   );
 
   return (
-    <div className="glass rounded-2xl p-6 glow-blue">
+    <div className="glass rounded-2xl p-6">
       <div className="flex items-start gap-4 mb-6">
         <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
           <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,8 +42,8 @@ export default function Recommendations({ recommendations }: Props) {
           </svg>
         </div>
         <div>
-          <h3 className="text-white font-semibold text-lg">Recommendations</h3>
-          <p className="text-white/40 text-xs mt-0.5">
+          <h3 className="text-slate-100 font-semibold text-lg">Recommendations</h3>
+          <p className="text-slate-500 text-xs mt-0.5">
             {sorted.filter(r => r.priority === "immediate").length} immediate ·{" "}
             {sorted.filter(r => r.priority === "short-term").length} short-term ·{" "}
             {sorted.filter(r => r.priority === "long-term").length} long-term actions
@@ -55,7 +55,7 @@ export default function Recommendations({ recommendations }: Props) {
         {sorted.map((rec, i) => {
           const styles = getPriorityStyle(rec.priority);
           return (
-            <div key={i} className="rounded-xl bg-white/3 border border-white/6 p-4 flex gap-4">
+            <div key={i} className="rounded-xl bg-white/3 border border-white/8 p-4 flex gap-4">
               <div className="flex flex-col items-center pt-1 gap-2">
                 <div className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                 {i < sorted.length - 1 && <div className="w-px flex-1 bg-white/8" />}
@@ -63,13 +63,13 @@ export default function Recommendations({ recommendations }: Props) {
               <div className="space-y-2 flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-lg">{CATEGORY_ICONS[rec.category] ?? "🔧"}</span>
-                  <span className="text-white text-sm font-semibold">{rec.title}</span>
+                  <span className="text-slate-200 text-sm font-semibold">{rec.title}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${styles.badge}`}>
                     {rec.priority}
                   </span>
-                  <span className="text-white/25 text-xs capitalize">{rec.category}</span>
+                  <span className="text-slate-600 text-xs capitalize">{rec.category}</span>
                 </div>
-                <p className="text-white/55 text-sm leading-relaxed">{rec.description}</p>
+                <p className="text-slate-400 text-sm leading-relaxed">{rec.description}</p>
               </div>
             </div>
           );

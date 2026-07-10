@@ -6,9 +6,9 @@ interface Props { summary: AnalysisResult["summary"] }
 
 const Card = ({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) => (
   <div className="glass rounded-xl p-5 space-y-1">
-    <p className="text-white/40 text-xs font-medium uppercase tracking-wider">{label}</p>
-    <p className={`text-2xl font-bold ${accent ?? "text-white"}`}>{value}</p>
-    {sub && <p className="text-white/35 text-xs truncate">{sub}</p>}
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+    <p className={`text-2xl font-bold ${accent ?? "text-slate-100"}`}>{value}</p>
+    {sub && <p className="text-slate-500 text-xs truncate">{sub}</p>}
   </div>
 );
 

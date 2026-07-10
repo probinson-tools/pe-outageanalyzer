@@ -79,7 +79,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
       <div className="grid md:grid-cols-2 gap-6">
         {/* File drop zone */}
         <div>
-          <label className="block text-white/60 text-xs font-medium uppercase tracking-wider mb-2">
+          <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
             Log Archive (ZIP)
           </label>
           <div
@@ -100,15 +100,15 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-green-400 text-sm font-medium">{file.name}</p>
-                <p className="text-white/30 text-xs mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p className="text-slate-600 text-xs mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
               </>
             ) : (
               <>
-                <svg className="w-8 h-8 text-white/25 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-8 h-8 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-white/50 text-sm">Drop ZIP here or <span className="text-blue-400">browse</span></p>
-                <p className="text-white/25 text-xs mt-1">.zip files containing log files</p>
+                <p className="text-slate-500 text-sm">Drop ZIP here or <span className="text-blue-400">browse</span></p>
+                <p className="text-slate-600 text-xs mt-1">.zip files containing log files</p>
               </>
             )}
           </div>
@@ -118,7 +118,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
         {/* Time & info */}
         <div className="space-y-4">
           <div>
-            <label className="block text-white/60 text-xs font-medium uppercase tracking-wider mb-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Outage Date &amp; Time
             </label>
             <input
@@ -126,15 +126,15 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
               value={outageTime}
               onChange={(e) => setOutageTime(e.target.value)}
               disabled={busy}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-400/60 focus:bg-white/8 transition-all disabled:opacity-50"
+              className="w-full bg-[#0F1117] border border-white/10 rounded-lg px-4 py-3 text-slate-200 text-sm placeholder:text-slate-600 transition-all disabled:opacity-50"
             />
           </div>
-          <div className="glass rounded-xl p-4 space-y-2">
-            <p className="text-white/40 text-xs font-medium uppercase tracking-wider">What Claude will analyze</p>
+          <div className="rounded-xl bg-white/3 border border-white/8 p-4 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">What Claude will analyze</p>
             {["Error &amp; exception breakdown", "Malicious bot detection", "Memory pressure patterns", "Timeline reconstruction", "Root cause synopsis", "Fix recommendations"].map((item) => (
               <div key={item} className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400/60"></div>
-                <span className="text-white/50 text-xs" dangerouslySetInnerHTML={{ __html: item }} />
+                <span className="text-slate-500 text-xs" dangerouslySetInnerHTML={{ __html: item }} />
               </div>
             ))}
           </div>
@@ -144,10 +144,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
       <button
         type="submit"
         disabled={!file || !outageTime || busy}
-        className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all
-          bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white
-          disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:from-red-500 disabled:hover:to-red-600
-          shadow-lg shadow-red-500/20"
+        className="w-full py-3.5 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {busy ? (
           <span className="flex items-center justify-center gap-2">

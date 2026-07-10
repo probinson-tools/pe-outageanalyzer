@@ -24,7 +24,7 @@ interface Props {
 }
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1d26",
+  backgroundColor: "#1A1D2E",
   border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: "8px",
   color: "#e2e8f0",
@@ -45,8 +45,8 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
     <div className="space-y-6">
       {/* Timeline area chart */}
       <div className="glass rounded-2xl p-6">
-        <h3 className="text-white font-semibold mb-1">Event Timeline</h3>
-        <p className="text-white/40 text-xs mb-6">Error rate, warnings, and estimated memory pressure over time</p>
+        <h3 className="text-slate-100 font-semibold mb-1">Event Timeline</h3>
+        <p className="text-slate-500 text-xs mb-6">Error rate, warnings, and estimated memory pressure over time</p>
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={timeline} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <defs>
@@ -79,8 +79,8 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
       <div className="grid md:grid-cols-2 gap-6">
         {/* Severity donut */}
         <div className="glass rounded-2xl p-6">
-          <h3 className="text-white font-semibold mb-1">Severity Distribution</h3>
-          <p className="text-white/40 text-xs mb-4">Breakdown of events by severity level</p>
+          <h3 className="text-slate-100 font-semibold mb-1">Severity Distribution</h3>
+          <p className="text-slate-500 text-xs mb-4">Breakdown of events by severity level</p>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
@@ -105,8 +105,8 @@ export default function Charts({ timeline, severityDistribution, categoryBreakdo
 
         {/* Category bar */}
         <div className="glass rounded-2xl p-6">
-          <h3 className="text-white font-semibold mb-1">Error Categories</h3>
-          <p className="text-white/40 text-xs mb-4">Event count by category</p>
+          <h3 className="text-slate-100 font-semibold mb-1">Error Categories</h3>
+          <p className="text-slate-500 text-xs mb-4">Event count by category</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={categoryBreakdown} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
