@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import StripUrlCredentials from "@/components/StripUrlCredentials";
 
 export const metadata: Metadata = {
   title: "Outage Analyzer | PE Tools",
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <StripUrlCredentials />
+        {children}
+      </body>
     </html>
   );
 }
