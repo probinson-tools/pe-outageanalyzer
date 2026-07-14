@@ -15,6 +15,15 @@ function isAuthorized(request: NextRequest): boolean {
 
 export function middleware(request: NextRequest) {
   if (isAuthorized(request)) {
+    // Links from pe-commandcenter embed credentials and carry a ?login=1
+    // marker. Redirect to the same URL without the marker: the Location
+    // header has no userinfo, so the browser loads the page from a clean
+    // URL and no asset request carries embedded credentials.
+    if (request.nextUrl.searchParams.has('login')) {
+      const url = request.nextUrl.clone();
+      url.searchParams.delete('login');
+      return NextResponse.redirect(url);
+    }
     return NextResponse.next();
   }
 
