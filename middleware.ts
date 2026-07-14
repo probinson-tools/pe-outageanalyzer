@@ -22,7 +22,23 @@ export function middleware(request: NextRequest) {
     if (request.nextUrl.searchParams.has('login')) {
       const url = request.nextUrl.clone();
       url.searchParams.delete('login');
-      return NextResponse.redirect(url);
+      // A Location-header redirect can't be used here: Next/Vercel rewrite
+      // same-origin Locations to relative ("/"), and browsers resolve a
+      // relative Location against the credentialed URL, carrying the
+      // userinfo over. Instead serve a tiny interstitial that client-side
+      // replaces the URL with the absolute clean one. Build the public
+      // origin from forwarded headers (nextUrl can report the internal
+      // host behind Vercel's proxy).
+      const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+      const host =
+        request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? url.host;
+      const clean = `${proto}://${host}${url.pathname}${url.search}`;
+      const attr = clean.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      const html = `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${attr}"><script>location.replace(${JSON.stringify(clean)})</script></head><body><a href="${attr}">Continue</a></body></html>`;
+      return new NextResponse(html, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
     }
     return NextResponse.next();
   }
