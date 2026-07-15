@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { searchConfluence } from "@/lib/confluence";
 
 export const runtime = "edge";
 export const maxDuration = 60;
@@ -37,9 +38,23 @@ export async function POST(req: NextRequest) {
         ? logContent.slice(0, 80000) + "\n\n[...log truncated...]"
         : logContent;
 
-    const prompt = `You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report.
+    let confluenceContext = "";
+    try {
+      confluenceContext = await searchConfluence(trimmedLog);
+      console.log(
+        confluenceContext
+          ? `[analyze] Confluence context included: ${confluenceContext.length} chars`
+          : "[analyze] Confluence context empty (no matches or not configured)"
+      );
+    } catch (err) {
+      console.error("[analyze] Confluence lookup failed:", err);
+    }
 
-OUTAGE TIME: ${outageTime}
+    const roleInstruction =
+      "You are an expert server reliability engineer and security analyst. Analyze the following server log data and produce a comprehensive structured JSON report. When Confluence reference material about the Translation Server (TServer) is provided below, ground your root-cause analysis and recommendations in that documented configuration/runbook knowledge rather than speculating generically.";
+    const system = [roleInstruction, confluenceContext].filter(Boolean).join("\n\n---\n\n");
+
+    const prompt = `OUTAGE TIME: ${outageTime}
 FILE: ${fileName}
 
 LOG DATA:
@@ -102,6 +117,7 @@ Constraints:
           const anthropicStream = client.messages.stream({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 8000,
+            system,
             messages: [{ role: "user", content: prompt }],
           });
 
