@@ -10,6 +10,7 @@ import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
 
 const Charts = dynamic(() => import("./results/Charts"), { ssr: false });
+const OomChart = dynamic(() => import("./results/OomChart"), { ssr: false });
 
 interface Props {
   summary: ParsedLogSummary;
@@ -33,6 +34,9 @@ export default function AnalysisResults({ summary, outageTime, aiResult, aiLoadi
 
       {/* Chart 1: thread count, memory, DB pool size */}
       <Charts chartPoints={summary.chartPoints} dbPoolServerName={summary.dbPoolServerName} />
+
+      {/* OOM errors over time */}
+      <OomChart chartPoints={summary.chartPoints} oomTotal={summary.flags.oomTotal} />
 
       {/* Chart 2: top errors */}
       <ErrorTable errors={summary.topErrors} />

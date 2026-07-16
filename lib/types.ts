@@ -20,6 +20,7 @@ export interface ChartPoint {
   threadCount: number;
   dbPoolSize: number;
   memoryUsedPct: number | null;
+  oomCount: number;
 }
 
 export interface TopError {
@@ -58,6 +59,7 @@ export interface ParsedLogSummary {
   flags: {
     dbPoolLeakSuspected: boolean;
     oomDetected: boolean;
+    oomTotal: number;
     peakDbPoolSize: number;
     peakThreadCount: number;
     minFreeMemoryPct: number | null;

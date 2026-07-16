@@ -36,7 +36,7 @@ function summarizeForPrompt(s: ParsedLogSummary, outageTime: string): string {
   lines.push(`- Peak concurrent threads (per bucket): ${s.flags.peakThreadCount}`);
 
   lines.push("");
-  lines.push(`TOP ERRORS/EXCEPTIONS (${s.flags.totalExceptions} total occurrences, OOM detected: ${s.flags.oomDetected}):`);
+  lines.push(`TOP ERRORS/EXCEPTIONS (${s.flags.totalExceptions} total occurrences, OutOfMemoryError count: ${s.flags.oomTotal}):`);
   for (const e of s.topErrors.slice(0, 10)) {
     lines.push(`- ${e.type}: ${e.count}x (first ${e.firstSeen}, last ${e.lastSeen}) — sample: ${e.sample.slice(0, 200)}`);
   }

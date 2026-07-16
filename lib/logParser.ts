@@ -6,6 +6,8 @@ const EVENT_RE = /^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) Thread\[([^\]]
 const DB_POOL_RE = /for server (.+?)\. Current pool size=(\d+)\. Free databases in pool=(\d+)/;
 const MEMORY_RE = /freeMemory=\[(\d+)K\] totalMemory=\[(\d+)K\] maxMemory=\[(\d+)K\]/;
 const THROWN_FROM_RE = /Thrown from ([^\n]+)/;
+// Count every occurrence of the Java heap OOM signature (global flag).
+const OOM_RE = /java\.lang\.OutOfMemoryError: Java heap space/g;
 const ADMIN_PING_RE = /IP\[([^\]]+)\]\s*USERAGENT\[([^\]]+)\]/;
 const NO_TRANS_INFO_RE =
   /clientIP=\[([^\]]*)\]\s*userAgent=\[([^\]]*)\]\s*hostHeader=\[([^\]]*)\]\s*referrer=\[([^\]]*)\]\s*Request Url=\[([^\]]*)\]/;
@@ -83,9 +85,18 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const ipCounts = new Map<string, number>();
   const uaCounts = new Map<string, number>();
   const urlCounts = new Map<string, number>();
-  let oomDetected = false;
+  const oomPoints: { time: number; count: number }[] = [];
+  let oomTotal = 0;
 
   for (const e of events) {
+    // Count OOM occurrences in this event (including any continuation/stack-trace
+    // lines buffered into e.text). Attributed to the event's time bucket.
+    const oomInEvent = (e.text.match(OOM_RE) || []).length;
+    if (oomInEvent > 0) {
+      oomTotal += oomInEvent;
+      oomPoints.push({ time: e.time, count: oomInEvent });
+    }
+
     const dbPoolMatch = DB_POOL_RE.exec(e.text);
     if (dbPoolMatch) {
       const server = dbPoolMatch[1];
@@ -106,7 +117,6 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     const thrownMatch = THROWN_FROM_RE.exec(e.text);
     if (thrownMatch) {
       const type = thrownMatch[1].trim().replace(/\.$/, "");
-      if (/OutOfMemoryError/i.test(e.text)) oomDetected = true;
       const continuationLines = e.text.slice(thrownMatch[0].length).split("\n").map((l) => l.trim()).filter(Boolean);
       const sample = continuationLines[0] || thrownMatch[0];
       const existing = errorCounts.get(type);
@@ -164,7 +174,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     }
   }
 
-  const chartPoints = computeChartPoints(events, dbPoolSeries, memoryPoints);
+  const chartPoints = computeChartPoints(events, dbPoolSeries, memoryPoints, oomPoints);
 
   const dbPoolLeakSuspected =
     dbPoolSeries.length > 1 &&
@@ -200,7 +210,8 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     topUrlPatterns,
     flags: {
       dbPoolLeakSuspected,
-      oomDetected,
+      oomDetected: oomTotal > 0,
+      oomTotal,
       peakDbPoolSize,
       peakThreadCount,
       minFreeMemoryPct,
@@ -213,7 +224,8 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
 function computeChartPoints(
   events: LogEvent[],
   dbPoolSeries: { time: number; poolSize: number }[],
-  memorySeries: { time: number; usedPct: number }[]
+  memorySeries: { time: number; usedPct: number }[],
+  oomSeries: { time: number; count: number }[]
 ): ChartPoint[] {
   if (events.length === 0) return [];
 
@@ -228,6 +240,13 @@ function computeChartPoints(
   for (const e of events) {
     const idx = Math.min(Math.floor((e.time - minTime) / bucketMs), bucketCount - 1);
     bucketThreadSets[idx].add(e.thread);
+  }
+
+  // Sum OOM occurrences into their time bucket (spike-in-window, not cumulative).
+  const bucketOomCounts: number[] = new Array(bucketCount).fill(0);
+  for (const o of oomSeries) {
+    const idx = Math.min(Math.floor((o.time - minTime) / bucketMs), bucketCount - 1);
+    bucketOomCounts[idx] += o.count;
   }
 
   const sortedDbPool = [...dbPoolSeries].sort((a, b) => a.time - b.time);
@@ -254,6 +273,7 @@ function computeChartPoints(
       threadCount: bucketThreadSets[i].size,
       dbPoolSize: lastDbPool,
       memoryUsedPct: lastMemPct,
+      oomCount: bucketOomCounts[i],
     });
   }
 
