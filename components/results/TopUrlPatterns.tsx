@@ -12,7 +12,7 @@ export default function TopUrlPatterns({ patterns }: Props) {
     <div className="glass rounded-2xl p-6">
       <h3 className="text-slate-100 font-semibold mb-1">Top URL Patterns</h3>
       <p className="text-slate-500 text-xs mb-4">
-        Host + path (query strings stripped) from failed/rejected requests
+        Host + path (query strings stripped) across proxied translation requests, retries, and errors
       </p>
       <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin pr-1">
         {patterns.map((p, i) => (

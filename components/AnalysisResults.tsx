@@ -6,6 +6,7 @@ import SummaryCards from "./results/SummaryCards";
 import ErrorTable from "./results/ErrorTable";
 import TrafficSources from "./results/TrafficSources";
 import TopUrlPatterns from "./results/TopUrlPatterns";
+import CacheParams from "./results/CacheParams";
 import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
 
@@ -46,6 +47,9 @@ export default function AnalysisResults({ summary, outageTime, aiResult, aiLoadi
 
       {/* Chart 5: top URL patterns */}
       <TopUrlPatterns patterns={summary.topUrlPatterns} />
+
+      {/* Cache optimization — query-param cardinality */}
+      <CacheParams params={summary.queryParams} />
 
       {/* AI synopsis + recommendations — streams in after the charts above are already visible */}
       {aiResult ? (

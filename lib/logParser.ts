@@ -1,4 +1,4 @@
-import type { ChartPoint, ParsedLogSummary, TopError, TopIp, TopUrlPattern, TopUserAgent } from "./types";
+import type { ChartPoint, ParsedLogSummary, QueryParamStat, TopError, TopIp, TopUrlPattern, TopUserAgent } from "./types";
 
 // Base TServer line shape: "2026.07.16 13:35:23.996 Thread[main] <message>"
 const EVENT_RE = /^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) Thread\[([^\]]*)\]\s?(.*)$/;
@@ -11,6 +11,11 @@ const OOM_RE = /java\.lang\.OutOfMemoryError: Java heap space/g;
 const ADMIN_PING_RE = /IP\[([^\]]+)\]\s*USERAGENT\[([^\]]+)\]/;
 const NO_TRANS_INFO_RE =
   /clientIP=\[([^\]]*)\]\s*userAgent=\[([^\]]*)\]\s*hostHeader=\[([^\]]*)\]\s*referrer=\[([^\]]*)\]\s*Request Url=\[([^\]]*)\]/;
+// Two high-volume proxied-request URL formats. Anchored to their method
+// contexts so they don't collide with the lowercase `url=` inside the
+// requestInfo=[...] block (handled below) or `Using driver=...url=jdbc:...`.
+const COMPRESS_URL_RE = /Unable to compress content for url=(https?:\/\/.+?), so content was sent uncompressed/;
+const RETRY_URL_RE = /getFromURL\(\): RETRY#\d+ (?:getting from|successful for) url=(https?:\/\/\S+)/;
 const URL_DOMAIN_RE = /,urlDomain=([^,]*)/;
 const URL_PATH_RE = /,urlPath=([^,]*)/;
 const CLIENT_IP_RE = /,clientIP=([^,\]]*)/;
@@ -85,8 +90,34 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const ipCounts = new Map<string, number>();
   const uaCounts = new Map<string, number>();
   const urlCounts = new Map<string, number>();
+  const paramOccurrences = new Map<string, number>();
+  const paramValues = new Map<string, Set<string>>();
   const oomPoints: { time: number; count: number }[] = [];
   let oomTotal = 0;
+
+  // Record a full proxied-request URL: count its host+path pattern, and tally
+  // each query param's occurrences and distinct values (cache-key cardinality).
+  const recordUrl = (fullUrl: string) => {
+    const pattern = stripQueryToHostPath(fullUrl);
+    if (pattern) incr(urlCounts, pattern);
+
+    const q = fullUrl.split("?").slice(1).join("?");
+    if (!q) return;
+    for (const pair of q.split("&")) {
+      if (!pair) continue;
+      const eq = pair.indexOf("=");
+      const name = eq === -1 ? pair : pair.slice(0, eq);
+      const value = eq === -1 ? "" : pair.slice(eq + 1);
+      if (!name) continue;
+      incr(paramOccurrences, name);
+      let set = paramValues.get(name);
+      if (!set) {
+        set = new Set<string>();
+        paramValues.set(name, set);
+      }
+      set.add(value);
+    }
+  };
 
   for (const e of events) {
     // Count OOM occurrences in this event (including any continuation/stack-trace
@@ -127,6 +158,13 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
         errorCounts.set(type, { count: 1, firstSeen: e.timestamp, lastSeen: e.timestamp, sample });
       }
     }
+
+    // Proxied-request URLs — the high-volume traffic signal (translation
+    // fetches, retries) that carries full query strings for cache analysis.
+    const compressMatch = COMPRESS_URL_RE.exec(e.text);
+    if (compressMatch) recordUrl(compressMatch[1]);
+    const retryMatch = RETRY_URL_RE.exec(e.text);
+    if (retryMatch) recordUrl(retryMatch[1]);
 
     // Admin config-reload ping: IP + User-Agent only, no URL.
     const adminMatch = ADMIN_PING_RE.exec(e.text);
@@ -190,6 +228,15 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const topUserAgents: TopUserAgent[] = topN(uaCounts, 10).map(({ key, count }) => ({ userAgent: key, count }));
   const topUrlPatterns: TopUrlPattern[] = topN(urlCounts, 15).map(({ key, count }) => ({ pattern: key, count }));
 
+  // Query params ranked by distinct-value count — the cache-key cardinality
+  // signal. A param with many distinct values fragments the cache (each unique
+  // value is a separate cache entry), so those are the cache-optimization targets.
+  const queryParams: QueryParamStat[] = [...paramOccurrences.entries()]
+    .map(([name, occurrences]) => ({ name, occurrences, distinctValues: paramValues.get(name)?.size ?? 0 }))
+    .sort((a, b) => b.distinctValues - a.distinctValues || b.occurrences - a.occurrences)
+    .slice(0, 15);
+  const cacheFragmentationSuspected = queryParams.some((p) => p.distinctValues >= 10);
+
   const peakDbPoolSize = dbPoolSeries.reduce((max, p) => Math.max(max, p.poolSize), 0);
   const peakThreadCount = chartPoints.reduce((max, p) => Math.max(max, p.threadCount), 0);
   const minFreeMemoryPct =
@@ -208,10 +255,12 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     topIps,
     topUserAgents,
     topUrlPatterns,
+    queryParams,
     flags: {
       dbPoolLeakSuspected,
       oomDetected: oomTotal > 0,
       oomTotal,
+      cacheFragmentationSuspected,
       peakDbPoolSize,
       peakThreadCount,
       minFreeMemoryPct,

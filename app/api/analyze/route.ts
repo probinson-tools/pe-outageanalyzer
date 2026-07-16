@@ -50,8 +50,16 @@ function summarizeForPrompt(s: ParsedLogSummary, outageTime: string): string {
   for (const ua of s.topUserAgents.slice(0, 10)) lines.push(`- ${ua.userAgent}: ${ua.count}x`);
 
   lines.push("");
-  lines.push("TOP URL PATTERNS (from failed/rejected requests):");
+  lines.push("TOP URL PATTERNS (host + path, across proxied translation requests, retries, and errors):");
   for (const u of s.topUrlPatterns.slice(0, 15)) lines.push(`- ${u.pattern}: ${u.count}x`);
+
+  lines.push("");
+  lines.push(
+    `QUERY PARAMETERS (cache-key cardinality — high distinct-value counts fragment the cache; fragmentation suspected: ${s.flags.cacheFragmentationSuspected}):`
+  );
+  for (const p of s.queryParams.slice(0, 15)) {
+    lines.push(`- ${p.name}: ${p.occurrences} requests, ${p.distinctValues} distinct values`);
+  }
 
   return lines.join("\n");
 }
@@ -79,6 +87,9 @@ export async function POST(req: NextRequest) {
       ...parsedSummary.topErrors.slice(0, 5).map((e) => e.type),
       parsedSummary.flags.dbPoolLeakSuspected ? "database connection pool leak" : "",
       parsedSummary.flags.oomDetected ? "out of memory heap" : "",
+      parsedSummary.flags.cacheFragmentationSuspected
+        ? `cache key query parameter passthrough ${parsedSummary.queryParams.slice(0, 3).map((p) => p.name).join(" ")}`
+        : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -96,7 +107,7 @@ export async function POST(req: NextRequest) {
     }
 
     const roleInstruction =
-      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking — grounded in that documentation rather than generic advice.";
+      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking — grounded in that documentation rather than generic advice. Pay particular attention to the QUERY PARAMETERS section: query parameters with high distinct-value counts (e.g. click/tracking IDs like ttclid, gclid, cmp) fragment the page cache because each unique value becomes a separate cache key, forcing origin fetches. When such high-cardinality parameters are present, recommend stripping or normalizing them out of the cache key (via the relevant Master Properties cache-key / passthrough configuration) so those URL patterns can be served from cache.";
     const system = [roleInstruction, confluenceContext].filter(Boolean).join("\n\n---\n\n");
 
     const prompt = `${summarizeForPrompt(parsedSummary, outageTime ?? "")}

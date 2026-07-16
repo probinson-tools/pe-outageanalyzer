@@ -46,6 +46,12 @@ export interface TopUrlPattern {
   count: number;
 }
 
+export interface QueryParamStat {
+  name: string;
+  occurrences: number;
+  distinctValues: number;
+}
+
 export interface ParsedLogSummary {
   fileName: string;
   lineCount: number;
@@ -56,10 +62,12 @@ export interface ParsedLogSummary {
   topIps: TopIp[];
   topUserAgents: TopUserAgent[];
   topUrlPatterns: TopUrlPattern[];
+  queryParams: QueryParamStat[];
   flags: {
     dbPoolLeakSuspected: boolean;
     oomDetected: boolean;
     oomTotal: number;
+    cacheFragmentationSuspected: boolean;
     peakDbPoolSize: number;
     peakThreadCount: number;
     minFreeMemoryPct: number | null;
