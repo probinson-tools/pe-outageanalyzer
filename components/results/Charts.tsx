@@ -1,26 +1,20 @@
 "use client";
 
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
   Legend,
 } from "recharts";
-import type { AnalysisResult } from "@/lib/types";
+import type { ParsedLogSummary } from "@/lib/types";
 
 interface Props {
-  timeline: AnalysisResult["timeline"];
-  severityDistribution: AnalysisResult["severityDistribution"];
-  categoryBreakdown: AnalysisResult["categoryBreakdown"];
+  chartPoints: ParsedLogSummary["chartPoints"];
+  dbPoolServerName: string | null;
 }
 
 const TOOLTIP_STYLE = {
@@ -31,97 +25,40 @@ const TOOLTIP_STYLE = {
   fontSize: "12px",
 };
 
-const BAR_COLORS = [
-  "#60a5fa", "#f472b6", "#34d399", "#fb923c",
-  "#a78bfa", "#facc15", "#38bdf8", "#4ade80",
-];
+function formatTick(time: number) {
+  const d = new Date(time);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
-export default function Charts({ timeline, severityDistribution, categoryBreakdown }: Props) {
-  if (!timeline?.length || !severityDistribution?.length || !categoryBreakdown?.length) {
-    return null;
-  }
+export default function Charts({ chartPoints, dbPoolServerName }: Props) {
+  if (!chartPoints?.length) return null;
 
   return (
-    <div className="space-y-6">
-      {/* Timeline area chart */}
-      <div className="glass rounded-2xl p-6">
-        <h3 className="text-slate-100 font-semibold mb-1">Event Timeline</h3>
-        <p className="text-slate-500 text-xs mb-6">Error rate, warnings, and estimated memory pressure over time</p>
-        <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={timeline} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="errGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="warnGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#eab308" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="time" stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-            <YAxis stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
-            <Legend wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
-            <Area type="monotone" dataKey="errors" name="Errors" stroke="#ef4444" fill="url(#errGrad)" strokeWidth={2} dot={false} />
-            <Area type="monotone" dataKey="warnings" name="Warnings" stroke="#eab308" fill="url(#warnGrad)" strokeWidth={1.5} dot={false} />
-            <Area type="monotone" dataKey="memoryPressure" name="Memory %" stroke="#a855f7" fill="url(#memGrad)" strokeWidth={2} dot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Pie + Bar side by side */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Severity donut */}
-        <div className="glass rounded-2xl p-6">
-          <h3 className="text-slate-100 font-semibold mb-1">Severity Distribution</h3>
-          <p className="text-slate-500 text-xs mb-4">Breakdown of events by severity level</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie
-                data={severityDistribution}
-                cx="50%"
-                cy="50%"
-                innerRadius={55}
-                outerRadius={85}
-                paddingAngle={3}
-                dataKey="value"
-                nameKey="name"
-              >
-                {severityDistribution.map((entry, i) => (
-                  <Cell key={`cell-${i}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Category bar */}
-        <div className="glass rounded-2xl p-6">
-          <h3 className="text-slate-100 font-semibold mb-1">Error Categories</h3>
-          <p className="text-slate-500 text-xs mb-4">Event count by category</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={categoryBreakdown} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis dataKey="name" stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-              <YAxis stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" name="Events" radius={[4, 4, 0, 0]}>
-                {categoryBreakdown.map((_, i) => (
-                  <Cell key={`bar-cell-${i}`} fill={BAR_COLORS[i % BAR_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+    <div className="glass rounded-2xl p-6">
+      <h3 className="text-slate-100 font-semibold mb-1">Thread Count, Memory &amp; DB Pool Size</h3>
+      <p className="text-slate-500 text-xs mb-6">
+        Concurrency, memory usage %, and DB pool size{dbPoolServerName ? ` (server: ${dbPoolServerName})` : ""} over time
+      </p>
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={chartPoints} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={formatTick}
+            stroke="#ffffff30"
+            tick={{ fontSize: 11, fill: "#ffffff50" }}
+          />
+          <YAxis yAxisId="left" stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
+          <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => new Date(v as number).toLocaleString()} />
+          <Legend wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
+          <Line yAxisId="left" type="monotone" dataKey="threadCount" name="Thread Count" stroke="#60a5fa" strokeWidth={2} dot={false} />
+          <Line yAxisId="left" type="monotone" dataKey="dbPoolSize" name="DB Pool Size" stroke="#ef4444" strokeWidth={2} dot={false} />
+          <Line yAxisId="right" type="monotone" dataKey="memoryUsedPct" name="Memory Used %" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

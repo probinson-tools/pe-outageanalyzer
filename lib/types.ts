@@ -1,59 +1,67 @@
-export interface ErrorEntry {
-  type: string;
-  count: number;
-  severity: "critical" | "high" | "medium" | "low";
-  firstSeen: string;
-  lastSeen: string;
-  sample: string;
-}
-
-export interface BotEntry {
-  ip: string;
-  requests: number;
-  userAgent: string;
-  classification: string;
-  threat: "high" | "medium" | "low";
-}
-
-export interface TimelinePoint {
-  time: string;
-  errors: number;
-  warnings: number;
-  requests: number;
-  memoryPressure: number;
-}
-
-export interface PatternEntry {
-  name: string;
-  description: string;
-  occurrences: number;
-  impact: "critical" | "high" | "medium" | "low";
-}
+// ── AI response (Claude fills this in, grounded in ParsedLogSummary + Confluence) ──
 
 export interface Recommendation {
   title: string;
   description: string;
   priority: "immediate" | "short-term" | "long-term";
-  category: string;
+  category: "memory" | "database" | "caching" | "passthrough" | "blocking" | "monitoring" | "configuration";
+  configReference?: string;
 }
 
 export interface AnalysisResult {
-  summary: {
-    totalErrors: number;
-    totalWarnings: number;
-    criticalEvents: number;
-    timespan: string;
-    outageTime: string;
-    fileName: string;
-    topErrorType: string;
-    estimatedCause: string;
-  };
-  errors: ErrorEntry[];
-  bots: BotEntry[];
-  timeline: TimelinePoint[];
-  patterns: PatternEntry[];
   synopsis: string;
   recommendations: Recommendation[];
-  severityDistribution: { name: string; value: number; color: string }[];
-  categoryBreakdown: { name: string; count: number }[];
+}
+
+// ── Parsed log data (deterministic, computed client-side by lib/logParser.ts) ──
+
+export interface ChartPoint {
+  time: number;
+  threadCount: number;
+  dbPoolSize: number;
+  memoryUsedPct: number | null;
+}
+
+export interface TopError {
+  type: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  sample: string;
+}
+
+export interface TopIp {
+  ip: string;
+  count: number;
+}
+
+export interface TopUserAgent {
+  userAgent: string;
+  count: number;
+}
+
+export interface TopUrlPattern {
+  pattern: string;
+  count: number;
+}
+
+export interface ParsedLogSummary {
+  fileName: string;
+  lineCount: number;
+  timespan: { start: string; end: string } | null;
+  chartPoints: ChartPoint[];
+  dbPoolServerName: string | null;
+  topErrors: TopError[];
+  topIps: TopIp[];
+  topUserAgents: TopUserAgent[];
+  topUrlPatterns: TopUrlPattern[];
+  flags: {
+    dbPoolLeakSuspected: boolean;
+    oomDetected: boolean;
+    peakDbPoolSize: number;
+    peakThreadCount: number;
+    minFreeMemoryPct: number | null;
+    totalExceptions: number;
+    distinctErrorTypes: number;
+  };
 }

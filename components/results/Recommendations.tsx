@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnalysisResult } from "@/lib/types";
+import type { Recommendation } from "@/lib/types";
 
 const FALLBACK_STYLE = { badge: "bg-white/10 text-white/50 border-white/20", dot: "bg-white/40", order: 99 };
 
@@ -19,13 +19,15 @@ function getPriorityStyle(priority: string) {
 
 const CATEGORY_ICONS: Record<string, string> = {
   memory: "💾",
-  security: "🔒",
-  performance: "⚡",
+  database: "🗄️",
+  caching: "⚡",
+  passthrough: "↪️",
+  blocking: "🚫",
   monitoring: "📊",
   configuration: "⚙️",
 };
 
-interface Props { recommendations: AnalysisResult["recommendations"] }
+interface Props { recommendations: Recommendation[] }
 
 export default function Recommendations({ recommendations }: Props) {
   if (!recommendations?.length) return null;
@@ -70,6 +72,9 @@ export default function Recommendations({ recommendations }: Props) {
                   <span className="text-slate-600 text-xs capitalize">{rec.category}</span>
                 </div>
                 <p className="text-slate-400 text-sm leading-relaxed">{rec.description}</p>
+                {rec.configReference && (
+                  <p className="text-blue-400/80 text-xs font-mono">{rec.configReference}</p>
+                )}
               </div>
             </div>
           );

@@ -1,30 +1,35 @@
 "use client";
 
 import { useState, useRef } from "react";
-import dynamic from "next/dynamic";
 import Image from "next/image";
 import UploadPanel from "@/components/UploadPanel";
 import AnalysisResults from "@/components/AnalysisResults";
-import type { AnalysisResult } from "@/lib/types";
+import type { AnalysisResult, ParsedLogSummary } from "@/lib/types";
 import { repairJson } from "@/lib/repairJson";
 
-const LoadingOverlay = dynamic(() => import("@/components/LoadingOverlay"), { ssr: false });
-
 export default function Home() {
-  const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [parsedSummary, setParsedSummary] = useState<ParsedLogSummary | null>(null);
+  const [outageTime, setOutageTime] = useState<string>("");
+  const [aiResult, setAiResult] = useState<AnalysisResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  const handleAnalyze = async (logContent: string, outageTime: string, fileName: string) => {
-    setLoading(true);
+  const handleAnalyze = async (summary: ParsedLogSummary, outageTime: string, fileName: string) => {
+    // Charts render immediately from the deterministic parse — only the AI
+    // synopsis/recommendations wait on the network call below.
+    setParsedSummary(summary);
+    setOutageTime(outageTime);
+    setAiResult(null);
     setError(null);
-    setResult(null);
+    setAiLoading(true);
+    setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ logContent, outageTime, fileName }),
+        body: JSON.stringify({ parsedSummary: summary, outageTime, fileName }),
       });
 
       if (!res.body) {
@@ -59,19 +64,16 @@ export default function Home() {
           parseErr instanceof Error ? parseErr.message : "Server returned an unexpected response. Please try again."
         );
       }
-      setResult(data);
-      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      setAiResult(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
-      setLoading(false);
+      setAiLoading(false);
     }
   };
 
   return (
     <main className="min-h-screen bg-[#0F1117]">
-      {loading && <LoadingOverlay />}
-
       {/* Header */}
       <header className="border-b border-white/8 bg-[#1A1D2E] sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-3 relative flex items-center justify-between">
@@ -97,13 +99,13 @@ export default function Home() {
             Diagnose Server Outages <span className="text-blue-400">Instantly</span>
           </h2>
           <p className="text-slate-500 max-w-xl mx-auto text-sm leading-relaxed">
-            Upload your log ZIP archive and outage timestamp. Claude AI will analyze errors, detect malicious patterns,
-            generate visual timelines, and deliver actionable recommendations.
+            Upload a TServer log (.zip, .log, or .txt) with an optional outage timestamp. Thread, memory, DB pool,
+            and traffic metrics are parsed instantly — Claude adds a root-cause synopsis and config recommendations.
           </p>
         </div>
 
         {/* Upload panel */}
-        <UploadPanel onAnalyze={handleAnalyze} loading={loading} />
+        <UploadPanel onAnalyze={handleAnalyze} loading={aiLoading} />
 
         {/* Error */}
         {error && (
@@ -116,9 +118,9 @@ export default function Home() {
         )}
 
         {/* Results */}
-        {result && (
+        {parsedSummary && (
           <div ref={resultsRef}>
-            <AnalysisResults result={result} />
+            <AnalysisResults summary={parsedSummary} outageTime={outageTime} aiResult={aiResult} aiLoading={aiLoading} />
           </div>
         )}
       </div>

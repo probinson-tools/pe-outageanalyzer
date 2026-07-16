@@ -1,11 +1,15 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { parseLog } from "@/lib/logParser";
+import type { ParsedLogSummary } from "@/lib/types";
 
 interface Props {
-  onAnalyze: (logContent: string, outageTime: string, fileName: string) => void;
+  onAnalyze: (summary: ParsedLogSummary, outageTime: string, fileName: string) => void;
   loading: boolean;
 }
+
+const ACCEPTED_RE = /\.(zip|log|txt)$/i;
 
 export default function UploadPanel({ onAnalyze, loading }: Props) {
   const [file, setFile] = useState<File | null>(null);
@@ -16,8 +20,8 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (f: File) => {
-    if (!f.name.endsWith(".zip")) {
-      setExtractError("Please upload a .zip file containing log files.");
+    if (!ACCEPTED_RE.test(f.name)) {
+      setExtractError("Please upload a .zip, .log, or .txt file.");
       return;
     }
     setExtractError(null);
@@ -31,42 +35,38 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
     if (f) handleFile(f);
   }, []);
 
+  const extractZipText = async (f: File): Promise<string> => {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(f);
+    const logParts: string[] = [];
+
+    const entries = Object.entries(zip.files).sort(([a], [b]) => a.localeCompare(b));
+    for (const [name, entry] of entries) {
+      if (entry.dir) continue;
+      const lower = name.toLowerCase();
+      if (!lower.match(/\.(log|txt|out|err|access|error|debug|info|json|csv)$/) && !lower.includes("log")) continue;
+      const text = await entry.async("string");
+      logParts.push(`\n===== FILE: ${name} =====\n${text}`);
+    }
+
+    if (logParts.length === 0) {
+      throw new Error("No log files found in the ZIP. Expected .log, .txt, .out, .err, or similar files.");
+    }
+    return logParts.join("\n");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || !outageTime) return;
+    if (!file) return;
     setExtracting(true);
     setExtractError(null);
     try {
-      const JSZip = (await import("jszip")).default;
-      const zip = await JSZip.loadAsync(file);
-      const logParts: string[] = [];
-      const maxChars = 180000;
-      let total = 0;
-
-      const entries = Object.entries(zip.files).sort(([a], [b]) => a.localeCompare(b));
-      for (const [name, entry] of entries) {
-        if (entry.dir) continue;
-        const lower = name.toLowerCase();
-        if (!lower.match(/\.(log|txt|out|err|access|error|debug|info|json|csv)$/) && !lower.includes("log")) continue;
-        const text = await entry.async("string");
-        const chunk = `\n===== FILE: ${name} =====\n${text}`;
-        if (total + chunk.length > maxChars) {
-          logParts.push(chunk.slice(0, maxChars - total));
-          break;
-        }
-        logParts.push(chunk);
-        total += chunk.length;
-      }
-
-      if (logParts.length === 0) {
-        setExtractError("No log files found in the ZIP. Expected .log, .txt, .out, .err, or similar files.");
-        setExtracting(false);
-        return;
-      }
-
-      onAnalyze(logParts.join("\n"), outageTime, file.name);
+      const isZip = file.name.toLowerCase().endsWith(".zip");
+      const fullText = isZip ? await extractZipText(file) : await file.text();
+      const summary = parseLog(fullText, file.name);
+      onAnalyze(summary, outageTime, file.name);
     } catch (err) {
-      setExtractError("Failed to read ZIP: " + (err instanceof Error ? err.message : "Unknown error"));
+      setExtractError("Failed to read file: " + (err instanceof Error ? err.message : "Unknown error"));
     } finally {
       setExtracting(false);
     }
@@ -80,7 +80,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
         {/* File drop zone */}
         <div>
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-            Log Archive (ZIP)
+            Log File (.zip, .log, .txt)
           </label>
           <div
             onClick={() => !busy && inputRef.current?.click()}
@@ -93,7 +93,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
               ${busy ? "pointer-events-none opacity-50" : ""}
             `}
           >
-            <input ref={inputRef} type="file" accept=".zip" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            <input ref={inputRef} type="file" accept=".zip,.log,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
             {file ? (
               <>
                 <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -107,8 +107,8 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
                 <svg className="w-8 h-8 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-slate-500 text-sm">Drop ZIP here or <span className="text-blue-400">browse</span></p>
-                <p className="text-slate-600 text-xs mt-1">.zip files containing log files</p>
+                <p className="text-slate-500 text-sm">Drop a file here or <span className="text-blue-400">browse</span></p>
+                <p className="text-slate-600 text-xs mt-1">.zip, .log, or .txt files</p>
               </>
             )}
           </div>
@@ -119,7 +119,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
         <div className="space-y-4">
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Outage Date &amp; Time
+              Outage Date &amp; Time <span className="normal-case text-slate-600">(optional)</span>
             </label>
             <input
               type="datetime-local"
@@ -130,8 +130,8 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
             />
           </div>
           <div className="rounded-xl bg-white/3 border border-white/8 p-4 space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">What Claude will analyze</p>
-            {["Error &amp; exception breakdown", "Malicious bot detection", "Memory pressure patterns", "Timeline reconstruction", "Root cause synopsis", "Fix recommendations"].map((item) => (
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">What gets analyzed</p>
+            {["Thread count, memory &amp; DB pool trends", "Top errors &amp; exceptions", "Top traffic sources (IP &amp; User-Agent)", "Top URL patterns", "Root cause synopsis", "Config-change recommendations"].map((item) => (
               <div key={item} className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400/60"></div>
                 <span className="text-slate-500 text-xs" dangerouslySetInnerHTML={{ __html: item }} />
@@ -143,7 +143,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
 
       <button
         type="submit"
-        disabled={!file || !outageTime || busy}
+        disabled={!file || busy}
         className="w-full py-3.5 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {busy ? (
@@ -152,7 +152,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {extracting ? "Extracting logs…" : "Analyzing with Claude…"}
+            {extracting ? "Parsing logs…" : "Analyzing with Claude…"}
           </span>
         ) : "Analyze Logs"}
       </button>

@@ -1,6 +1,6 @@
 "use client";
 
-interface Props { synopsis: string; outageTime: string }
+interface Props { synopsis: string; outageTime?: string }
 
 export default function Synopsis({ synopsis, outageTime }: Props) {
   const paragraphs = synopsis.split(/\n+/).filter(Boolean);
@@ -15,7 +15,9 @@ export default function Synopsis({ synopsis, outageTime }: Props) {
         </div>
         <div>
           <h3 className="text-slate-100 font-semibold text-lg">Root Cause Synopsis</h3>
-          <p className="text-slate-500 text-xs mt-0.5">AI analysis of what likely caused this outage · Outage time: {outageTime}</p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            AI analysis of what likely caused this outage{outageTime ? ` · Outage time: ${outageTime}` : ""}
+          </p>
         </div>
       </div>
       <div className="space-y-4 border-l-2 border-blue-500/20 pl-5">
