@@ -71,6 +71,7 @@ export interface ParsedLogSummary {
     peakDbPoolSize: number;
     peakThreadCount: number;
     minFreeMemoryPct: number | null;
+    assignedMemoryMb: number | null;
     totalExceptions: number;
     distinctErrorTypes: number;
   };

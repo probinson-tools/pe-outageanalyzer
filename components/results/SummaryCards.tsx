@@ -27,6 +27,10 @@ export default function SummaryCards({ summary }: Props) {
         value={flags.minFreeMemoryPct !== null ? `${flags.minFreeMemoryPct.toFixed(1)}%` : "—"}
         accent={flags.minFreeMemoryPct !== null && flags.minFreeMemoryPct < 15 ? "text-red-400" : undefined}
       />
+      <Card
+        label="Assigned Memory"
+        value={flags.assignedMemoryMb !== null ? `${flags.assignedMemoryMb.toLocaleString()} MB` : "—"}
+      />
       <Card label="Peak Concurrent Threads" value={flags.peakThreadCount.toLocaleString()} />
       <Card
         label="Total Exceptions"

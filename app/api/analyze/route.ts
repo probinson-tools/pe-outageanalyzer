@@ -28,6 +28,9 @@ function summarizeForPrompt(s: ParsedLogSummary, outageTime: string): string {
   lines.push("");
   lines.push("MEMORY:");
   lines.push(
+    `- Assigned heap (JVM Memory setting at startup): ${s.flags.assignedMemoryMb !== null ? s.flags.assignedMemoryMb.toLocaleString() + " MB" : "not detected"}`
+  );
+  lines.push(
     `- Minimum observed free memory: ${s.flags.minFreeMemoryPct !== null ? s.flags.minFreeMemoryPct.toFixed(1) + "%" : "no samples"}`
   );
 

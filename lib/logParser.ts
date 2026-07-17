@@ -5,6 +5,9 @@ const EVENT_RE = /^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) Thread\[([^\]]
 
 const DB_POOL_RE = /for server (.+?)\. Current pool size=(\d+)\. Free databases in pool=(\d+)/;
 const MEMORY_RE = /freeMemory=\[(\d+)K\] totalMemory=\[(\d+)K\] maxMemory=\[(\d+)K\]/;
+// One-time startup line reporting the JVM heap assigned for caches, e.g.
+// "Creating caches based on Memory=8388MB (TotalMemory=8388MB MaxMemory=8388MB)".
+const ASSIGNED_MEMORY_RE = /Creating caches based on Memory=(\d+)MB/;
 const THROWN_FROM_RE = /Thrown from ([^\n]+)/;
 // Count every occurrence of the Java heap OOM signature (global flag).
 const OOM_RE = /java\.lang\.OutOfMemoryError: Java heap space/g;
@@ -94,6 +97,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const paramValues = new Map<string, Set<string>>();
   const oomPoints: { time: number; count: number }[] = [];
   let oomTotal = 0;
+  let assignedMemoryMb: number | null = null;
 
   // Record a full proxied-request URL: count its host+path pattern, and tally
   // each query param's occurrences and distinct values (cache-key cardinality).
@@ -143,6 +147,11 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
       const maxK = Number(memMatch[3]);
       const usedPct = maxK > 0 ? ((totalK - freeK) / maxK) * 100 : null;
       if (usedPct !== null) memoryPoints.push({ time: e.time, usedPct });
+    }
+
+    if (assignedMemoryMb === null) {
+      const assignedMatch = ASSIGNED_MEMORY_RE.exec(e.text);
+      if (assignedMatch) assignedMemoryMb = Number(assignedMatch[1]);
     }
 
     const thrownMatch = THROWN_FROM_RE.exec(e.text);
@@ -267,6 +276,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
       peakDbPoolSize,
       peakThreadCount,
       minFreeMemoryPct,
+      assignedMemoryMb,
       totalExceptions: [...errorCounts.values()].reduce((sum, e) => sum + e.count, 0),
       distinctErrorTypes: errorCounts.size,
     },
