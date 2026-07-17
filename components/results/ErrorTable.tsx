@@ -14,7 +14,9 @@ export default function ErrorTable({ errors }: Props) {
         {errors.map((err, i) => (
           <div key={i} className="rounded-lg bg-white/3 border border-white/8 p-3 space-y-1.5">
             <div className="flex items-start justify-between gap-2">
-              <span className="text-slate-200 text-sm font-medium leading-tight">{err.type}</span>
+              <span className="min-w-0 text-slate-200 text-sm font-medium leading-tight break-words [overflow-wrap:anywhere] line-clamp-3">
+                {err.type}
+              </span>
               <span className="shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium bg-red-500/15 text-red-400 border-red-500/30">
                 ×{err.count.toLocaleString()}
               </span>
