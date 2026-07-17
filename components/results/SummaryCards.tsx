@@ -15,35 +15,45 @@ const Card = ({ label, value, sub, accent }: { label: string; value: string | nu
 export default function SummaryCards({ summary }: Props) {
   const { flags, timespan } = summary;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      <Card
-        label="Peak DB Pool Size"
-        value={flags.peakDbPoolSize.toLocaleString()}
-        sub={flags.dbPoolLeakSuspected ? "Leak suspected" : undefined}
-        accent={flags.dbPoolLeakSuspected ? "text-red-400" : undefined}
-      />
-      <Card
-        label="Min Free Memory"
-        value={flags.minFreeMemoryPct !== null ? `${flags.minFreeMemoryPct.toFixed(1)}%` : "—"}
-        accent={flags.minFreeMemoryPct !== null && flags.minFreeMemoryPct < 15 ? "text-red-400" : undefined}
-      />
-      <Card
-        label="Assigned Memory"
-        value={flags.assignedMemoryMb !== null ? `${flags.assignedMemoryMb.toLocaleString()} MB` : "—"}
-      />
-      <Card label="Peak Concurrent Threads" value={flags.peakThreadCount.toLocaleString()} />
-      <Card
-        label="Total Exceptions"
-        value={flags.totalExceptions.toLocaleString()}
-        accent={flags.oomDetected ? "text-red-400" : undefined}
-        sub={flags.oomDetected ? "OutOfMemoryError detected" : undefined}
-      />
-      <Card label="Distinct Error Types" value={flags.distinctErrorTypes.toLocaleString()} />
-      <Card
-        label="Log Timespan"
-        value={timespan ? `${timespan.start.split(" ")[1]} – ${timespan.end.split(" ")[1]}` : "—"}
-        sub={timespan ? timespan.start.split(" ")[0] : undefined}
-      />
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <Card
+          label="Peak DB Pool Size"
+          value={flags.peakDbPoolSize.toLocaleString()}
+          sub={flags.dbPoolLeakSuspected ? "Leak suspected" : undefined}
+          accent={flags.dbPoolLeakSuspected ? "text-red-400" : undefined}
+        />
+        <Card
+          label="Min Free Memory"
+          value={flags.minFreeMemoryPct !== null ? `${flags.minFreeMemoryPct.toFixed(1)}%` : "—"}
+          accent={flags.minFreeMemoryPct !== null && flags.minFreeMemoryPct < 15 ? "text-red-400" : undefined}
+        />
+        <Card
+          label="Assigned Memory"
+          value={flags.assignedMemoryMb !== null ? `${flags.assignedMemoryMb.toLocaleString()} MB` : "—"}
+        />
+        <Card label="Peak Concurrent Threads" value={flags.peakThreadCount.toLocaleString()} />
+        <Card
+          label="Total Exceptions"
+          value={flags.totalExceptions.toLocaleString()}
+          accent={flags.oomDetected ? "text-red-400" : undefined}
+          sub={flags.oomDetected ? "OutOfMemoryError detected" : undefined}
+        />
+        <Card label="Distinct Error Types" value={flags.distinctErrorTypes.toLocaleString()} />
+      </div>
+
+      <div className="glass rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Log Timespan</p>
+        <p className="text-sm font-medium text-slate-100">
+          {timespan ? (
+            <>
+              {timespan.start} <span className="text-slate-500">–</span> {timespan.end}
+            </>
+          ) : (
+            "—"
+          )}
+        </p>
+      </div>
     </div>
   );
 }
