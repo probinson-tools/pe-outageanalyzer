@@ -188,9 +188,12 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     // InvalidTranslationInfoException: requestInfo=[...urlDomain=...,urlPath=...,clientIP=...] + requestHeaders=[...;user-agent:=...;...]
     const urlDomainMatch = URL_DOMAIN_RE.exec(e.text);
     const urlPathMatch = URL_PATH_RE.exec(e.text);
-    if (urlDomainMatch && urlPathMatch) {
-      const pattern = `${urlDomainMatch[1]}${urlPathMatch[1]}`;
-      incr(urlCounts, pattern);
+    if (urlDomainMatch && urlDomainMatch[1] && urlDomainMatch[1] !== "null") {
+      const domain = urlDomainMatch[1];
+      // urlPath is Java's literal "null" when no path is available for this
+      // request — treat it as empty rather than concatenating the text "null".
+      const path = urlPathMatch && urlPathMatch[1] && urlPathMatch[1] !== "null" ? urlPathMatch[1] : "";
+      incr(urlCounts, `${domain}${path}`);
     }
     const clientIpMatch = CLIENT_IP_RE.exec(e.text);
     if (clientIpMatch && clientIpMatch[1] && clientIpMatch[1] !== "null") {
