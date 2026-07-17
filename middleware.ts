@@ -9,8 +9,15 @@ function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Basic ')) return false;
 
-  const [reqUser, reqPassword] = atob(authHeader.slice('Basic '.length)).split(':');
-  return reqUser === user && reqPassword === password;
+  // Malformed Authorization headers (e.g. from scanners/bots probing the
+  // site) make atob() throw — treat that as unauthorized rather than
+  // crashing the whole middleware invocation.
+  try {
+    const [reqUser, reqPassword] = atob(authHeader.slice('Basic '.length)).split(':');
+    return reqUser === user && reqPassword === password;
+  } catch {
+    return false;
+  }
 }
 
 export function middleware(request: NextRequest) {
