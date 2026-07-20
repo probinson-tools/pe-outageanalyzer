@@ -4,6 +4,11 @@ import type { ChartPoint, ParsedLogSummary, QueryParamStat, TopError, TopIp, Top
 const EVENT_RE = /^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) Thread\[([^\]]*)\]\s?(.*)$/;
 
 const DB_POOL_RE = /for server (.+?)\. Current pool size=(\d+)\. Free databases in pool=(\d+)/;
+// The proxy-request connection pool (BOConManager) — a distinct pool from the
+// database pool above. Its lines use varying prepositions before "server"
+// ("... on server X" for addConnectionToPool()/extendPool()), so anchor on
+// "server" itself rather than a specific preposition.
+const CONN_POOL_RE = /\bserver (.+?)\. Current pool size=(\d+)\. Free connections in pool=(\d+)/;
 const MEMORY_RE = /freeMemory=\[(\d+)K\] totalMemory=\[(\d+)K\] maxMemory=\[(\d+)K\]/;
 // One-time startup line reporting the JVM heap assigned for caches, e.g.
 // "Creating caches based on Memory=8388MB (TotalMemory=8388MB MaxMemory=8388MB)".
@@ -87,6 +92,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const events = buildEvents(text).sort((a, b) => a.time - b.time);
 
   const dbPoolByServer = new Map<string, { time: number; poolSize: number; free: number }[]>();
+  const connPoolByServer = new Map<string, { time: number; poolSize: number; free: number }[]>();
   const memoryPoints: { time: number; usedPct: number }[] = [];
 
   const errorCounts = new Map<string, { count: number; firstSeen: string; lastSeen: string; sample: string }>();
@@ -138,6 +144,14 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
       const list = dbPoolByServer.get(server) ?? [];
       list.push({ time: e.time, poolSize: Number(dbPoolMatch[2]), free: Number(dbPoolMatch[3]) });
       dbPoolByServer.set(server, list);
+    }
+
+    const connPoolMatch = CONN_POOL_RE.exec(e.text);
+    if (connPoolMatch) {
+      const server = connPoolMatch[1];
+      const list = connPoolByServer.get(server) ?? [];
+      list.push({ time: e.time, poolSize: Number(connPoolMatch[2]), free: Number(connPoolMatch[3]) });
+      connPoolByServer.set(server, list);
     }
 
     const memMatch = MEMORY_RE.exec(e.text);
@@ -224,12 +238,28 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     }
   }
 
-  const chartPoints = computeChartPoints(events, dbPoolSeries, memoryPoints, oomPoints);
+  // Same dominant-server selection, independently, for the connection pool —
+  // it's a distinct pool and may not share the DB pool's dominant server name.
+  let connPoolServerName: string | null = null;
+  let connPoolSeries: { time: number; poolSize: number; free: number }[] = [];
+  for (const [server, series] of connPoolByServer) {
+    if (series.length > connPoolSeries.length) {
+      connPoolServerName = server;
+      connPoolSeries = series;
+    }
+  }
+
+  const chartPoints = computeChartPoints(events, dbPoolSeries, connPoolSeries, memoryPoints, oomPoints);
 
   const dbPoolLeakSuspected =
     dbPoolSeries.length > 1 &&
     dbPoolSeries.every((p, i) => i === 0 || p.poolSize >= dbPoolSeries[i - 1].poolSize) &&
     dbPoolSeries[dbPoolSeries.length - 1].free === 0;
+
+  const connPoolLeakSuspected =
+    connPoolSeries.length > 1 &&
+    connPoolSeries.every((p, i) => i === 0 || p.poolSize >= connPoolSeries[i - 1].poolSize) &&
+    connPoolSeries[connPoolSeries.length - 1].free === 0;
 
   const topErrors: TopError[] = [...errorCounts.entries()]
     .map(([type, v]) => ({ type, ...v }))
@@ -250,6 +280,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const cacheFragmentationSuspected = queryParams.some((p) => p.distinctValues >= 10);
 
   const peakDbPoolSize = dbPoolSeries.reduce((max, p) => Math.max(max, p.poolSize), 0);
+  const peakConnPoolSize = connPoolSeries.reduce((max, p) => Math.max(max, p.poolSize), 0);
   const peakThreadCount = chartPoints.reduce((max, p) => Math.max(max, p.threadCount), 0);
   const minFreeMemoryPct =
     memoryPoints.length > 0 ? 100 - Math.max(...memoryPoints.map((p) => p.usedPct)) : null;
@@ -263,6 +294,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
         : null,
     chartPoints,
     dbPoolServerName,
+    connPoolServerName,
     topErrors,
     topIps,
     topUserAgents,
@@ -270,10 +302,12 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     queryParams,
     flags: {
       dbPoolLeakSuspected,
+      connPoolLeakSuspected,
       oomDetected: oomTotal > 0,
       oomTotal,
       cacheFragmentationSuspected,
       peakDbPoolSize,
+      peakConnPoolSize,
       peakThreadCount,
       minFreeMemoryPct,
       assignedMemoryMb,
@@ -286,6 +320,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
 function computeChartPoints(
   events: LogEvent[],
   dbPoolSeries: { time: number; poolSize: number }[],
+  connPoolSeries: { time: number; poolSize: number }[],
   memorySeries: { time: number; usedPct: number }[],
   oomSeries: { time: number; count: number }[]
 ): ChartPoint[] {
@@ -312,12 +347,15 @@ function computeChartPoints(
   }
 
   const sortedDbPool = [...dbPoolSeries].sort((a, b) => a.time - b.time);
+  const sortedConnPool = [...connPoolSeries].sort((a, b) => a.time - b.time);
   const sortedMemory = [...memorySeries].sort((a, b) => a.time - b.time);
 
   const points: ChartPoint[] = [];
   let dbIdx = 0;
+  let connIdx = 0;
   let memIdx = 0;
   let lastDbPool = 0;
+  let lastConnPool = 0;
   let lastMemPct: number | null = null;
 
   for (let i = 0; i < bucketCount; i++) {
@@ -325,6 +363,10 @@ function computeChartPoints(
     while (dbIdx < sortedDbPool.length && sortedDbPool[dbIdx].time < bucketEnd) {
       lastDbPool = sortedDbPool[dbIdx].poolSize;
       dbIdx++;
+    }
+    while (connIdx < sortedConnPool.length && sortedConnPool[connIdx].time < bucketEnd) {
+      lastConnPool = sortedConnPool[connIdx].poolSize;
+      connIdx++;
     }
     while (memIdx < sortedMemory.length && sortedMemory[memIdx].time < bucketEnd) {
       lastMemPct = sortedMemory[memIdx].usedPct;
@@ -334,6 +376,7 @@ function computeChartPoints(
       time: minTime + i * bucketMs,
       threadCount: bucketThreadSets[i].size,
       dbPoolSize: lastDbPool,
+      connPoolSize: lastConnPool,
       memoryUsedPct: lastMemPct,
       oomCount: bucketOomCounts[i],
     });

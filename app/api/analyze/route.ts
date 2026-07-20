@@ -20,9 +20,12 @@ function summarizeForPrompt(s: ParsedLogSummary, outageTime: string): string {
   if (outageTime) lines.push(`Reported outage time: ${outageTime}`);
 
   lines.push("");
-  lines.push("DB POOL:");
+  lines.push("CONNECTION POOLS (two distinct pools — do not conflate them):");
   lines.push(
-    `- Server: ${s.dbPoolServerName ?? "none detected"}, peak size ${s.flags.peakDbPoolSize}, leak suspected: ${s.flags.dbPoolLeakSuspected}`
+    `- Database pool — server: ${s.dbPoolServerName ?? "none detected"}, peak size ${s.flags.peakDbPoolSize}, leak suspected: ${s.flags.dbPoolLeakSuspected}`
+  );
+  lines.push(
+    `- Proxy connection pool — server: ${s.connPoolServerName ?? "none detected"}, peak size ${s.flags.peakConnPoolSize}, leak suspected: ${s.flags.connPoolLeakSuspected}`
   );
 
   lines.push("");
@@ -89,6 +92,7 @@ export async function POST(req: NextRequest) {
     const confluenceQuery = [
       ...parsedSummary.topErrors.slice(0, 5).map((e) => e.type),
       parsedSummary.flags.dbPoolLeakSuspected ? "database connection pool leak" : "",
+      parsedSummary.flags.connPoolLeakSuspected ? "proxy connection pool BOConManager leak" : "",
       parsedSummary.flags.oomDetected ? "out of memory heap" : "",
       parsedSummary.flags.cacheFragmentationSuspected
         ? `cache key query parameter passthrough ${parsedSummary.queryParams.slice(0, 3).map((p) => p.name).join(" ")}`
@@ -110,7 +114,7 @@ export async function POST(req: NextRequest) {
     }
 
     const roleInstruction =
-      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking — grounded in that documentation rather than generic advice. Pay particular attention to the QUERY PARAMETERS section: query parameters with high distinct-value counts (e.g. click/tracking IDs like ttclid, gclid, cmp) fragment the page cache because each unique value becomes a separate cache key, forcing origin fetches. When such high-cardinality parameters are present, recommend stripping or normalizing them out of the cache key (via the relevant Master Properties cache-key / passthrough configuration) so those URL patterns can be served from cache.";
+      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. The CONNECTION POOLS section covers two distinct pools that must not be conflated: the database pool (SQL Server connections, backing the translation database) and the proxy connection pool (BOConManager, backing outbound requests to the origin/proxy target) — a leak in one does not imply a leak in the other, and recommendations should name which pool they address. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking, pool size/timeout settings for whichever pool is implicated — grounded in that documentation rather than generic advice. Pay particular attention to the QUERY PARAMETERS section: query parameters with high distinct-value counts (e.g. click/tracking IDs like ttclid, gclid, cmp) fragment the page cache because each unique value becomes a separate cache key, forcing origin fetches. When such high-cardinality parameters are present, recommend stripping or normalizing them out of the cache key (via the relevant Master Properties cache-key / passthrough configuration) so those URL patterns can be served from cache.";
     const system = [roleInstruction, confluenceContext].filter(Boolean).join("\n\n---\n\n");
 
     const prompt = `${summarizeForPrompt(parsedSummary, outageTime ?? "")}
@@ -128,7 +132,7 @@ Constraints:
 - priority must be one of: immediate, short-term, long-term
 - category must be one of: memory, database, caching, passthrough, blocking, monitoring, configuration
 - recommendations: 5-8 entries, at least one referencing a specific Confluence config item if any Confluence material was provided above
-- synopsis: detailed, technical, referencing the specific numbers given above (peak DB pool size, memory %, top errors, etc.) — do not invent numbers not present above`;
+- synopsis: detailed, technical, referencing the specific numbers given above (peak database/connection pool sizes, memory %, top errors, etc.) — do not invent numbers not present above`;
 
     const encoder = new TextEncoder();
 

@@ -14,6 +14,8 @@ import type { ParsedLogSummary } from "@/lib/types";
 
 interface Props {
   chartPoints: ParsedLogSummary["chartPoints"];
+  dbPoolServerName: string | null;
+  connPoolServerName: string | null;
 }
 
 const TOOLTIP_STYLE = {
@@ -29,14 +31,21 @@ function formatTick(time: number) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function Charts({ chartPoints }: Props) {
+export default function ConnectionPoolsChart({ chartPoints, dbPoolServerName, connPoolServerName }: Props) {
   if (!chartPoints?.length) return null;
+
+  const subtitleParts = [
+    dbPoolServerName ? `database pool (server: ${dbPoolServerName})` : null,
+    connPoolServerName ? `connection pool (server: ${connPoolServerName})` : null,
+  ].filter(Boolean);
 
   return (
     <div className="glass rounded-2xl p-6">
-      <h3 className="text-slate-100 font-semibold mb-1">Thread Count &amp; Memory Usage</h3>
-      <p className="text-slate-500 text-xs mb-6">Concurrency and memory usage % over time</p>
-      <ResponsiveContainer width="100%" height={320}>
+      <h3 className="text-slate-100 font-semibold mb-1">Connection Pool Sizes</h3>
+      <p className="text-slate-500 text-xs mb-6">
+        {subtitleParts.length ? `${subtitleParts.join(" and ")} size over time` : "Pool size over time"}
+      </p>
+      <ResponsiveContainer width="100%" height={280}>
         <LineChart data={chartPoints} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis
@@ -47,12 +56,11 @@ export default function Charts({ chartPoints }: Props) {
             stroke="#ffffff30"
             tick={{ fontSize: 11, fill: "#ffffff50" }}
           />
-          <YAxis yAxisId="left" stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-          <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
+          <YAxis stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
           <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => new Date(v as number).toLocaleString()} />
           <Legend wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
-          <Line yAxisId="left" type="monotone" dataKey="threadCount" name="Thread Count" stroke="#60a5fa" strokeWidth={2} dot={false} />
-          <Line yAxisId="right" type="monotone" dataKey="memoryUsedPct" name="Memory Used %" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls />
+          <Line type="monotone" dataKey="dbPoolSize" name="Database Pool Size" stroke="#ef4444" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="connPoolSize" name="Connection Pool Size" stroke="#fbbf24" strokeWidth={2} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

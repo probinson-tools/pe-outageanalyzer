@@ -24,6 +24,12 @@ export default function SummaryCards({ summary }: Props) {
           accent={flags.dbPoolLeakSuspected ? "text-red-400" : undefined}
         />
         <Card
+          label="Peak Connection Pool Size"
+          value={flags.peakConnPoolSize.toLocaleString()}
+          sub={flags.connPoolLeakSuspected ? "Leak suspected" : undefined}
+          accent={flags.connPoolLeakSuspected ? "text-red-400" : undefined}
+        />
+        <Card
           label="Min Free Memory"
           value={flags.minFreeMemoryPct !== null ? `${flags.minFreeMemoryPct.toFixed(1)}%` : "—"}
           accent={flags.minFreeMemoryPct !== null && flags.minFreeMemoryPct < 15 ? "text-red-400" : undefined}

@@ -11,6 +11,7 @@ import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
 
 const Charts = dynamic(() => import("./results/Charts"), { ssr: false });
+const ConnectionPoolsChart = dynamic(() => import("./results/ConnectionPoolsChart"), { ssr: false });
 const OomChart = dynamic(() => import("./results/OomChart"), { ssr: false });
 
 interface Props {
@@ -33,8 +34,15 @@ export default function AnalysisResults({ summary, outageTime, aiResult, aiLoadi
       {/* Summary cards — real, parsed stats */}
       <SummaryCards summary={summary} />
 
-      {/* Chart 1: thread count, memory, DB pool size */}
-      <Charts chartPoints={summary.chartPoints} dbPoolServerName={summary.dbPoolServerName} />
+      {/* Chart 1: thread count & memory usage */}
+      <Charts chartPoints={summary.chartPoints} />
+
+      {/* Connection pool sizes — database pool + proxy connection pool */}
+      <ConnectionPoolsChart
+        chartPoints={summary.chartPoints}
+        dbPoolServerName={summary.dbPoolServerName}
+        connPoolServerName={summary.connPoolServerName}
+      />
 
       {/* OOM errors over time */}
       <OomChart chartPoints={summary.chartPoints} oomTotal={summary.flags.oomTotal} />

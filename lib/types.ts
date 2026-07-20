@@ -19,6 +19,7 @@ export interface ChartPoint {
   time: number;
   threadCount: number;
   dbPoolSize: number;
+  connPoolSize: number;
   memoryUsedPct: number | null;
   oomCount: number;
 }
@@ -58,6 +59,7 @@ export interface ParsedLogSummary {
   timespan: { start: string; end: string } | null;
   chartPoints: ChartPoint[];
   dbPoolServerName: string | null;
+  connPoolServerName: string | null;
   topErrors: TopError[];
   topIps: TopIp[];
   topUserAgents: TopUserAgent[];
@@ -65,10 +67,12 @@ export interface ParsedLogSummary {
   queryParams: QueryParamStat[];
   flags: {
     dbPoolLeakSuspected: boolean;
+    connPoolLeakSuspected: boolean;
     oomDetected: boolean;
     oomTotal: number;
     cacheFragmentationSuspected: boolean;
     peakDbPoolSize: number;
+    peakConnPoolSize: number;
     peakThreadCount: number;
     minFreeMemoryPct: number | null;
     assignedMemoryMb: number | null;
