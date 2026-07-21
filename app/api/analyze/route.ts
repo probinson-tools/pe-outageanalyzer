@@ -47,6 +47,17 @@ function summarizeForPrompt(s: ParsedLogSummary, outageTime: string): string {
     lines.push(`- ${e.type}: ${e.count}x (first ${e.firstSeen}, last ${e.lastSeen}) — sample: ${e.sample.slice(0, 200)}`);
   }
 
+  if (s.oomStackTraces.length > 0) {
+    lines.push("");
+    lines.push(
+      `OUT OF MEMORY STACK TRACES (distinct code paths, most-frequent first — use these to identify the actual allocation site/leak source):`
+    );
+    for (const t of s.oomStackTraces) {
+      lines.push(`- Occurred ${t.count}x, first at ${t.firstSeen}:`);
+      lines.push(t.trace);
+    }
+  }
+
   lines.push("");
   lines.push("TOP TRAFFIC SOURCES BY IP (from failed/rejected requests):");
   for (const ip of s.topIps.slice(0, 10)) lines.push(`- ${ip.ip}: ${ip.count}x`);
@@ -114,7 +125,7 @@ export async function POST(req: NextRequest) {
     }
 
     const roleInstruction =
-      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. The CONNECTION POOLS section covers two distinct pools that must not be conflated: the database pool (SQL Server connections, backing the translation database) and the proxy connection pool (BOConManager, backing outbound requests to the origin/proxy target) — a leak in one does not imply a leak in the other, and recommendations should name which pool they address. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking, pool size/timeout settings for whichever pool is implicated — grounded in that documentation rather than generic advice. Pay particular attention to the QUERY PARAMETERS section: query parameters with high distinct-value counts (e.g. click/tracking IDs like ttclid, gclid, cmp) fragment the page cache because each unique value becomes a separate cache key, forcing origin fetches. When such high-cardinality parameters are present, recommend stripping or normalizing them out of the cache key (via the relevant Master Properties cache-key / passthrough configuration) so those URL patterns can be served from cache.";
+      "You are an expert server reliability engineer reviewing parsed diagnostic data from TServer, a Java-based website-translation proxy server. You are given real, deterministically parsed metrics and counts below (not raw logs) — ground your root-cause synopsis strictly in these numbers. The CONNECTION POOLS section covers two distinct pools that must not be conflated: the database pool (SQL Server connections, backing the translation database) and the proxy connection pool (BOConManager, backing outbound requests to the origin/proxy target) — a leak in one does not imply a leak in the other, and recommendations should name which pool they address. When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes — e.g. passthrough rules, caching settings, request blocking, pool size/timeout settings for whichever pool is implicated — grounded in that documentation rather than generic advice. Pay particular attention to the QUERY PARAMETERS section: query parameters with high distinct-value counts (e.g. click/tracking IDs like ttclid, gclid, cmp) fragment the page cache because each unique value becomes a separate cache key, forcing origin fetches. When such high-cardinality parameters are present, recommend stripping or normalizing them out of the cache key (via the relevant Master Properties cache-key / passthrough configuration) so those URL patterns can be served from cache. When an OUT OF MEMORY STACK TRACES section is present, use the actual application-level frames (com.motionpoint.* classes/methods, not the generic servlet/Tomcat dispatch frames at the bottom) to identify the specific code path/operation that was allocating memory when the heap ran out — name that method/operation explicitly in the synopsis and let it drive at least one recommendation (e.g. a config change that avoids that code path, or a heap-size/GC tuning change), rather than treating the OOM count as just a number.";
     const system = [roleInstruction, confluenceContext].filter(Boolean).join("\n\n---\n\n");
 
     const prompt = `${summarizeForPrompt(parsedSummary, outageTime ?? "")}

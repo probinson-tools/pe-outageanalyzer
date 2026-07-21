@@ -53,6 +53,12 @@ export interface QueryParamStat {
   distinctValues: number;
 }
 
+export interface OomStackTrace {
+  count: number;
+  firstSeen: string;
+  trace: string;
+}
+
 export interface ParsedLogSummary {
   fileName: string;
   lineCount: number;
@@ -65,6 +71,7 @@ export interface ParsedLogSummary {
   topUserAgents: TopUserAgent[];
   topUrlPatterns: TopUrlPattern[];
   queryParams: QueryParamStat[];
+  oomStackTraces: OomStackTrace[];
   flags: {
     dbPoolLeakSuspected: boolean;
     connPoolLeakSuspected: boolean;

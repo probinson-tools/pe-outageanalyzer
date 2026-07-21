@@ -1,4 +1,4 @@
-import type { ChartPoint, ParsedLogSummary, QueryParamStat, TopError, TopIp, TopUrlPattern, TopUserAgent } from "./types";
+import type { ChartPoint, OomStackTrace, ParsedLogSummary, QueryParamStat, TopError, TopIp, TopUrlPattern, TopUserAgent } from "./types";
 
 // Base TServer line shape: "2026.07.16 13:35:23.996 Thread[main] <message>"
 const EVENT_RE = /^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) Thread\[([^\]]*)\]\s?(.*)$/;
@@ -15,7 +15,30 @@ const MEMORY_RE = /freeMemory=\[(\d+)K\] totalMemory=\[(\d+)K\] maxMemory=\[(\d+
 const ASSIGNED_MEMORY_RE = /Creating caches based on Memory=(\d+)MB/;
 const THROWN_FROM_RE = /Thrown from ([^\n]+)/;
 // Count every occurrence of the Java heap OOM signature (global flag).
-const OOM_RE = /java\.lang\.OutOfMemoryError: Java heap space/g;
+const OOM_MARKER = "java.lang.OutOfMemoryError: Java heap space";
+const OOM_RE = new RegExp(OOM_MARKER.replace(/\./g, "\\."), "g");
+// Java stack-frame continuation lines ("\tat ...", "Caused by: ...", "... N
+// more") — these are the non-timestamped lines buildEvents() already buffers
+// onto the preceding timestamped event's text.
+const STACK_FRAME_RE = /^\s*(at\s|Caused by:|\.\.\.\s*\d+\s+more)/;
+// Cap at 15 frames: Java stack traces list the innermost/actual allocation
+// site first and generic servlet-dispatch boilerplate (Tomcat/Catalina) last,
+// so a modest cap keeps the diagnostically useful application frames and
+// naturally drops the boilerplate tail without any special-casing.
+const MAX_OOM_FRAMES = 15;
+
+// Captures the bounded stack-frame block immediately following one
+// occurrence of the OOM marker within an event's (possibly multi-line) text.
+function extractStackTrace(afterMarker: string): string {
+  const lines = afterMarker.split("\n");
+  const frames: string[] = [];
+  for (const line of lines) {
+    if (!STACK_FRAME_RE.test(line)) break;
+    frames.push(line.trim());
+    if (frames.length >= MAX_OOM_FRAMES) break;
+  }
+  return frames.join("\n");
+}
 const ADMIN_PING_RE = /IP\[([^\]]+)\]\s*USERAGENT\[([^\]]+)\]/;
 const NO_TRANS_INFO_RE =
   /clientIP=\[([^\]]*)\]\s*userAgent=\[([^\]]*)\]\s*hostHeader=\[([^\]]*)\]\s*referrer=\[([^\]]*)\]\s*Request Url=\[([^\]]*)\]/;
@@ -104,6 +127,10 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
   const oomPoints: { time: number; count: number }[] = [];
   let oomTotal = 0;
   let assignedMemoryMb: number | null = null;
+  // Deduped by the trace's own text — repeated OOM crashes at the same code
+  // path (very common) produce byte-identical traces, so this naturally
+  // groups them without any separate fingerprinting logic.
+  const oomTraces = new Map<string, { count: number; firstSeen: string; trace: string }>();
 
   // Record a full proxied-request URL: count its host+path pattern, and tally
   // each query param's occurrences and distinct values (cache-key cardinality).
@@ -136,6 +163,21 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     if (oomInEvent > 0) {
       oomTotal += oomInEvent;
       oomPoints.push({ time: e.time, count: oomInEvent });
+
+      // Capture the stack trace following each occurrence so the AI can reason
+      // about *where* the heap ran out, not just how often.
+      let searchFrom = 0;
+      for (let i = 0; i < oomInEvent; i++) {
+        const idx = e.text.indexOf(OOM_MARKER, searchFrom);
+        if (idx === -1) break;
+        const trace = extractStackTrace(e.text.slice(idx + OOM_MARKER.length + 1));
+        if (trace) {
+          const existing = oomTraces.get(trace);
+          if (existing) existing.count += 1;
+          else oomTraces.set(trace, { count: 1, firstSeen: e.timestamp, trace });
+        }
+        searchFrom = idx + OOM_MARKER.length;
+      }
     }
 
     const dbPoolMatch = DB_POOL_RE.exec(e.text);
@@ -279,6 +321,13 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     .slice(0, 15);
   const cacheFragmentationSuspected = queryParams.some((p) => p.distinctValues >= 10);
 
+  // Distinct OOM code paths, most-frequent first — usually just 1-2 distinct
+  // traces even when oomTotal is large, since crashes tend to repeat at the
+  // same hot path.
+  const oomStackTraces: OomStackTrace[] = [...oomTraces.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
   const peakDbPoolSize = dbPoolSeries.reduce((max, p) => Math.max(max, p.poolSize), 0);
   const peakConnPoolSize = connPoolSeries.reduce((max, p) => Math.max(max, p.poolSize), 0);
   const peakThreadCount = chartPoints.reduce((max, p) => Math.max(max, p.threadCount), 0);
@@ -300,6 +349,7 @@ export function parseLog(text: string, fileName: string): ParsedLogSummary {
     topUserAgents,
     topUrlPatterns,
     queryParams,
+    oomStackTraces,
     flags: {
       dbPoolLeakSuspected,
       connPoolLeakSuspected,
