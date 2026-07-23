@@ -1,10 +1,49 @@
 "use client";
 
+import { useState } from "react";
 import type { ParsedLogSummary } from "@/lib/types";
 
 interface Props {
   topIps: ParsedLogSummary["topIps"];
   topUserAgents: ParsedLogSummary["topUserAgents"];
+}
+
+function CopyListButton({ getText }: { getText: () => string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(getText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API unavailable/denied — nothing sensible to do but leave the button as-is.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "Copied!" : "Copy full list to clipboard"}
+      className="shrink-0 text-slate-500 hover:text-slate-200 transition-colors"
+    >
+      {copied ? (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      ) : (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+          />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export default function TrafficSources({ topIps, topUserAgents }: Props) {
@@ -33,7 +72,12 @@ export default function TrafficSources({ topIps, topUserAgents }: Props) {
           )}
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">By User-Agent</p>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">By User-Agent</p>
+            {topUserAgents.length > 0 && (
+              <CopyListButton getText={() => topUserAgents.map((ua) => `${ua.userAgent}\t${ua.count}`).join("\n")} />
+            )}
+          </div>
           {topUserAgents.length === 0 ? (
             <p className="text-slate-600 text-xs">No User-Agents found in failed requests.</p>
           ) : (
