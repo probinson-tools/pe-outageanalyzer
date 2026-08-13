@@ -1,20 +1,34 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { parseLog } from "@/lib/logParser";
+import { mergeSnapshots, parseStatusDump } from "@/lib/statusParser";
 import { extractZipEntries } from "@/lib/zip";
-import type { ParsedLogSummary } from "@/lib/types";
+import type { StatusAnalysis } from "@/lib/types";
 
 interface Props {
-  onAnalyze: (summary: ParsedLogSummary, outageTime: string, fileName: string) => void;
+  onAnalyze: (analysis: StatusAnalysis, incidentTime: string, fileName: string) => void;
   loading: boolean;
 }
 
-const ACCEPTED_RE = /\.(zip|log|txt)$/i;
+const ACCEPTED_RE = /\.(zip|html?)$/i;
 
-export default function UploadPanel({ onAnalyze, loading }: Props) {
+// Only the dump bodies. The poller writes .meta.json sidecars and a results.csv next
+// to them, so zipping a whole output folder is the obvious thing to do — those files
+// are skipped rather than treated as a failed parse.
+const DUMP_ENTRY_RE = /\.html?$/i;
+
+const ANALYZED = [
+  "Heap, GC pressure &amp; thread trends per instance",
+  "Request throughput, response times &amp; error counters",
+  "Config drift and restarts across the server pool",
+  "Stuck requests joined to their thread stacks",
+  "Cache hit ratios, EhCache &amp; HTTP cache entries",
+  "Transformation timings &amp; dead transform rules",
+];
+
+export default function StatusUploadPanel({ onAnalyze, loading }: Props) {
   const [file, setFile] = useState<File | null>(null);
-  const [outageTime, setOutageTime] = useState("");
+  const [incidentTime, setIncidentTime] = useState("");
   const [dragging, setDragging] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -22,7 +36,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
 
   const handleFile = (f: File) => {
     if (!ACCEPTED_RE.test(f.name)) {
-      setExtractError("Please upload a .zip, .log, or .txt file.");
+      setExtractError("Please upload a .zip, .html, or .htm status dump.");
       return;
     }
     setExtractError(null);
@@ -36,20 +50,37 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
     if (f) handleFile(f);
   }, []);
 
-  // Anything log-shaped by extension, plus any name containing "log" (covers
-  // rotated files like tserver.log.3 that have no recognised suffix).
-  const LOG_ENTRY_RE = /(\.(log|txt|out|err|access|error|debug|info|json|csv)$|log)/i;
+  const buildAnalysis = async (f: File): Promise<StatusAnalysis> => {
+    const isZip = f.name.toLowerCase().endsWith(".zip");
 
-  const extractZipText = async (f: File): Promise<string> => {
-    const entries = await extractZipEntries(f, LOG_ENTRY_RE);
-
-    if (entries.length === 0) {
-      throw new Error("No log files found in the ZIP. Expected .log, .txt, .out, .err, or similar files.");
+    if (!isZip) {
+      return mergeSnapshots([parseStatusDump(await f.text(), f.name)]);
     }
 
-    // Banners are non-timestamped lines, so parseLog folds them into the preceding
-    // event and then re-sorts everything chronologically.
-    return entries.map((e) => `\n===== FILE: ${e.name} =====\n${e.text}`).join("\n");
+    const entries = await extractZipEntries(f, DUMP_ENTRY_RE);
+    if (entries.length === 0) {
+      throw new Error("No status dumps found in the ZIP. Expected .html or .htm files.");
+    }
+
+    // One dump that fails to parse shouldn't cost the whole upload — record it and
+    // carry on, the same way a partially readable log still produces a report.
+    const snapshots = [];
+    const parseErrors: StatusAnalysis["parseErrors"] = [];
+    for (const entry of entries) {
+      try {
+        snapshots.push(parseStatusDump(entry.text, entry.name));
+      } catch (err) {
+        parseErrors.push({
+          fileName: entry.name,
+          message: err instanceof Error ? err.message : "Unknown parse error",
+        });
+      }
+    }
+    if (snapshots.length === 0) {
+      throw new Error("None of the files in the ZIP could be parsed as status dumps.");
+    }
+
+    return { ...mergeSnapshots(snapshots), parseErrors };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,10 +89,8 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
     setExtracting(true);
     setExtractError(null);
     try {
-      const isZip = file.name.toLowerCase().endsWith(".zip");
-      const fullText = isZip ? await extractZipText(file) : await file.text();
-      const summary = parseLog(fullText, file.name);
-      onAnalyze(summary, outageTime, file.name);
+      const analysis = await buildAnalysis(file);
+      onAnalyze(analysis, incidentTime, file.name);
     } catch (err) {
       setExtractError("Failed to read file: " + (err instanceof Error ? err.message : "Unknown error"));
     } finally {
@@ -77,7 +106,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
         {/* File drop zone */}
         <div>
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-            Log File (.zip, .log, .txt)
+            Status Dump (.zip, .html)
           </label>
           <div
             onClick={() => !busy && inputRef.current?.click()}
@@ -90,7 +119,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
               ${busy ? "pointer-events-none opacity-50" : ""}
             `}
           >
-            <input ref={inputRef} type="file" accept=".zip,.log,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            <input ref={inputRef} type="file" accept=".zip,.html,.htm" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
             {file ? (
               <>
                 <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -105,7 +134,7 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p className="text-slate-500 text-sm">Drop a file here or <span className="text-blue-400">browse</span></p>
-                <p className="text-slate-600 text-xs mt-1">.zip, .log, or .txt files</p>
+                <p className="text-slate-600 text-xs mt-1">One dump, or a .zip of many to merge</p>
               </>
             )}
           </div>
@@ -116,19 +145,19 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
         <div className="space-y-4">
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Outage Date &amp; Time <span className="normal-case text-slate-600">(optional)</span>
+              Incident Date &amp; Time <span className="normal-case text-slate-600">(optional)</span>
             </label>
             <input
               type="datetime-local"
-              value={outageTime}
-              onChange={(e) => setOutageTime(e.target.value)}
+              value={incidentTime}
+              onChange={(e) => setIncidentTime(e.target.value)}
               disabled={busy}
               className="w-full bg-[#0F1117] border border-white/10 rounded-lg px-4 py-3 text-slate-200 text-sm placeholder:text-slate-600 transition-all disabled:opacity-50"
             />
           </div>
           <div className="rounded-xl bg-white/3 border border-white/8 p-4 space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">What gets analyzed</p>
-            {["Thread count, memory &amp; DB pool trends", "Top errors &amp; exceptions", "Top traffic sources (IP &amp; User-Agent)", "Top URL patterns", "Root cause synopsis", "Config-change recommendations"].map((item) => (
+            {ANALYZED.map((item) => (
               <div key={item} className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400/60"></div>
                 <span className="text-slate-500 text-xs" dangerouslySetInnerHTML={{ __html: item }} />
@@ -149,9 +178,9 @@ export default function UploadPanel({ onAnalyze, loading }: Props) {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {extracting ? "Parsing logs…" : "Analyzing with Claude…"}
+            {extracting ? "Parsing status dumps…" : "Analyzing with Claude…"}
           </span>
-        ) : "Analyze Logs"}
+        ) : "Analyze Status Dumps"}
       </button>
     </form>
   );

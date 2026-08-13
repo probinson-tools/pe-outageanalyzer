@@ -11,24 +11,12 @@ import {
   Legend,
 } from "recharts";
 import type { ParsedLogSummary } from "@/lib/types";
+import { AXIS_STROKE, AXIS_TICK, GRID_STROKE, LEGEND_STYLE, TOOLTIP_STYLE, formatTick, formatTimestamp } from "@/lib/chartTheme";
 
 interface Props {
   chartPoints: ParsedLogSummary["chartPoints"];
   dbPoolServerName: string | null;
   connPoolServerName: string | null;
-}
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1A1D2E",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-  fontSize: "12px",
-};
-
-function formatTick(time: number) {
-  const d = new Date(time);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export default function ConnectionPoolsChart({ chartPoints, dbPoolServerName, connPoolServerName }: Props) {
@@ -47,18 +35,18 @@ export default function ConnectionPoolsChart({ chartPoints, dbPoolServerName, co
       </p>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={chartPoints} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
           <XAxis
             dataKey="time"
             type="number"
             domain={["dataMin", "dataMax"]}
             tickFormatter={formatTick}
-            stroke="#ffffff30"
-            tick={{ fontSize: 11, fill: "#ffffff50" }}
+            stroke={AXIS_STROKE}
+            tick={AXIS_TICK}
           />
-          <YAxis stroke="#ffffff30" tick={{ fontSize: 11, fill: "#ffffff50" }} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => new Date(v as number).toLocaleString()} />
-          <Legend wrapperStyle={{ fontSize: "12px", color: "#ffffff80" }} />
+          <YAxis stroke={AXIS_STROKE} tick={AXIS_TICK} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={formatTimestamp} />
+          <Legend wrapperStyle={LEGEND_STYLE} />
           <Line type="monotone" dataKey="dbPoolSize" name="Database Pool Size" stroke="#ef4444" strokeWidth={2} dot={false} />
           <Line type="monotone" dataKey="connPoolSize" name="Connection Pool Size" stroke="#fbbf24" strokeWidth={2} dot={false} />
         </LineChart>

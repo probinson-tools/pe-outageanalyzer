@@ -1,34 +1,36 @@
 "use client";
 
 import { useState, useRef } from "react";
-import UploadPanel from "@/components/UploadPanel";
-import AnalysisResults from "@/components/AnalysisResults";
-import type { AnalysisResult, ParsedLogSummary } from "@/lib/types";
+import StatusUploadPanel from "@/components/StatusUploadPanel";
+import StatusResults from "@/components/StatusResults";
+import { toPromptPayload } from "@/lib/statusParser";
+import type { AnalysisResult, StatusAnalysis } from "@/lib/types";
 import { repairJson } from "@/lib/repairJson";
 
-export default function Home() {
-  const [parsedSummary, setParsedSummary] = useState<ParsedLogSummary | null>(null);
-  const [outageTime, setOutageTime] = useState<string>("");
+export default function ServerStatusPage() {
+  const [analysis, setAnalysis] = useState<StatusAnalysis | null>(null);
+  const [incidentTime, setIncidentTime] = useState<string>("");
   const [aiResult, setAiResult] = useState<AnalysisResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  const handleAnalyze = async (summary: ParsedLogSummary, outageTime: string, fileName: string) => {
-    // Charts render immediately from the deterministic parse — only the AI
+  const handleAnalyze = async (parsed: StatusAnalysis, when: string, fileName: string) => {
+    // Charts and tables render immediately from the deterministic parse — only the AI
     // synopsis/recommendations wait on the network call below.
-    setParsedSummary(summary);
-    setOutageTime(outageTime);
+    setAnalysis(parsed);
+    setIncidentTime(when);
     setAiResult(null);
     setError(null);
     setAiLoading(true);
     setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
     try {
-      const res = await fetch("/api/analyze", {
+      const res = await fetch("/api/analyze-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ parsedSummary: summary, outageTime, fileName }),
+        // Trimmed to aggregates + top-N; the full model holds thousands of cache rows.
+        body: JSON.stringify({ payload: toPromptPayload(parsed), incidentTime: when, fileName }),
       });
 
       if (!res.body) {
@@ -54,9 +56,9 @@ export default function Home() {
         const repaired = repairJson(fullText);
         const jsonMatch = repaired.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON found in response.");
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.__error) throw new Error(parsed.__error as string);
-        data = parsed as AnalysisResult;
+        const parsedJson = JSON.parse(jsonMatch[0]);
+        if (parsedJson.__error) throw new Error(parsedJson.__error as string);
+        data = parsedJson as AnalysisResult;
       } catch (parseErr) {
         console.error("Parse error. First 500 chars:", fullText.slice(0, 500));
         throw new Error(
@@ -77,16 +79,17 @@ export default function Home() {
         {/* Hero */}
         <div className="text-center space-y-3">
           <h2 className="text-3xl font-bold text-slate-100">
-            Diagnose Server Outages <span className="text-blue-400">Instantly</span>
+            Read Server Status <span className="text-blue-400">At a Glance</span>
           </h2>
-          <p className="text-slate-500 max-w-xl mx-auto text-sm leading-relaxed">
-            Upload a TServer log (.zip, .log, or .txt) with an optional outage timestamp. Thread, memory, DB pool,
-            and traffic metrics are parsed instantly — Claude adds a root-cause synopsis and config recommendations.
+          <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
+            Upload a TServer status dump (.html) or a .zip of many. Heap, GC, throughput, caches,
+            transforms and stuck-request stacks are parsed instantly and grouped per server
+            instance — Claude adds a root-cause synopsis and config recommendations.
           </p>
         </div>
 
         {/* Upload panel */}
-        <UploadPanel onAnalyze={handleAnalyze} loading={aiLoading} />
+        <StatusUploadPanel onAnalyze={handleAnalyze} loading={aiLoading} />
 
         {/* Error */}
         {error && (
@@ -99,15 +102,15 @@ export default function Home() {
         )}
 
         {/* Results */}
-        {parsedSummary && (
+        {analysis && (
           <div ref={resultsRef}>
-            <AnalysisResults summary={parsedSummary} outageTime={outageTime} aiResult={aiResult} aiLoading={aiLoading} />
+            <StatusResults analysis={analysis} incidentTime={incidentTime} aiResult={aiResult} aiLoading={aiLoading} />
           </div>
         )}
       </div>
 
       <footer className="border-t border-white/8 mt-20 py-6 text-center text-slate-600 text-xs">
-        PE Outage Analyzer · Built with Next.js &amp; Claude AI
+        PE Server Status Analyzer · Built with Next.js &amp; Claude AI
       </footer>
     </main>
   );
