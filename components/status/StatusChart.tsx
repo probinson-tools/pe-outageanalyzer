@@ -42,12 +42,13 @@ interface Props {
   emptyNote?: string;
 }
 
-/** Short instance label for legends — the full key includes the JVM start time. */
-function instanceLabel(inst: InstanceSeries, instances: InstanceSeries[]): string {
-  // Disambiguate only when the same Id appears more than once (i.e. it restarted).
-  const duplicated = instances.filter((o) => o.instanceId === inst.instanceId).length > 1;
-  if (!duplicated) return `Instance ${inst.instanceId}`;
-  return `Instance ${inst.instanceId} (${inst.startTime ?? "unknown start"})`;
+/**
+ * Legend label. One series per instance Id, so the Id alone identifies it — a restart
+ * stays on the same line rather than splitting into a second series.
+ */
+function instanceLabel(inst: InstanceSeries): string {
+  const suffix = inst.restartCount > 0 ? ` (${inst.restartCount}× restarted)` : "";
+  return `Instance ${inst.instanceId}${suffix}`;
 }
 
 /**
@@ -174,7 +175,7 @@ export default function StatusChart({
                         key={inst.key}
                         type="monotone"
                         dataKey={`s${i}`}
-                        name={instanceLabel(inst, instances)}
+                        name={instanceLabel(inst)}
                         stroke={seriesColor(i)}
                         strokeWidth={2}
                         dot={{ r: 2.5 }}

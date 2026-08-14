@@ -27,7 +27,10 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
     lines.push(
       `- Instance ${i.instanceId} — started ${i.startTime ?? "unknown"}, version ${i.version ?? "unknown"}, ` +
         `properties hash ${i.propertiesHash ?? "unknown"} (properties version ${i.propertiesVersion ?? "unknown"}), ` +
-        `${i.snapshotCount} snapshot(s)`
+        `${i.snapshotCount} snapshot(s)` +
+        (i.restartCount > 0
+          ? `, RESTARTED ${i.restartCount}x during the window (JVM start times observed: ${i.startTimes.join(" then ")})`
+          : "")
     );
     lines.push(
       `    peak heap ${i.peakHeapUsedPct !== null ? i.peakHeapUsedPct.toFixed(1) + "%" : "n/a"}, ` +
@@ -53,7 +56,9 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
   );
   lines.push(`- Distinct software versions: ${p.fleet.versions.map((g) => g.value).join(", ") || "unknown"}`);
   lines.push(`- Config drift detected: ${f.configDriftDetected}`);
-  lines.push(`- Restart detected: ${f.restartDetected}${f.restartedInstanceIds.length ? ` (instance ${f.restartedInstanceIds.join(", ")})` : ""}`);
+  lines.push(
+    `- Restarts observed: ${f.restartCount}${f.restartedInstanceIds.length ? ` (instance ${f.restartedInstanceIds.join(", ")})` : ""}`
+  );
 
   lines.push("");
   lines.push("MEMORY & GC:");
@@ -205,7 +210,7 @@ export async function POST(req: NextRequest) {
       "You are an expert server reliability engineer reviewing parsed status dumps from TServer, a Java-based website-translation proxy server. Each dump is a point-in-time snapshot of one JVM, taken from the server's own status page; a set of dumps is a time series of such snapshots. You are given deterministically parsed metrics below (not raw dumps) — ground your synopsis strictly in these numbers. " +
       "Four things about this data determine whether your reading is correct. " +
       "First, every cumulative counter (Completed Requests, total GCs, total collection time, LRU evictions, EhCache gets/hits, HTTP cache AccessCount, transform matches) is counted per instance since that instance's own start time. Never compare or subtract them across instances. " +
-      "Second, the polled URL is load balanced, so consecutive snapshots routinely come from different backends: a different instance Id is a different JVM, not the same server regressing. A counter that appears to drop between snapshots of different instances is an artifact of that routing, not an incident — do not report it as one. Per-instance figures above are already computed correctly; use them. " +
+      "Second, the polled URL is load balanced, so consecutive snapshots routinely come from different backends: a different instance Id is a different JVM, not the same server regressing. A counter that appears to drop between snapshots of different instances is an artifact of that routing, not an incident — do not report it as one. Per-instance figures above are already computed correctly; use them. The instance Id is the server's identity even across a restart, so an instance marked RESTARTED is still one server: its counters simply began again from zero at that point, and the per-interval figures above already exclude the boundary. Treat a restart as an event worth explaining (unplanned restarts during an incident window matter, and heap or GC readings taken shortly after one reflect a cold JVM, not steady state) rather than as evidence of a counter regression. " +
       "Third, the Properties Hash is a hash of the instance's effective configuration that already excludes host-specific keys (host.server.id, host.name.internal, local.server.id, replication.mode). Identical configurations therefore hash identically. If more than one hash appears across the pool — especially while every instance reports the same properties version — that is genuine configuration drift between backends serving the same site, and it means identical traffic can get different behaviour depending on which backend answers. Treat that as a first-class finding, explain the operational consequence, and recommend how to reconcile it. " +
       "Fourth, the IN-FLIGHT REQUESTS section pairs each unfinished request with the stack its thread was executing. Read the application frames (com.motionpoint.* classes and methods) rather than the generic Tomcat/servlet dispatch frames or JDK frames at the bottom — those application frames name the specific operation the request was spending its time in. When a request has been running a long time, name that method or operation explicitly in the synopsis and let it drive at least one recommendation. The MOST FREQUENT APPLICATION FRAMES list shows which code paths recur across in-flight threads; a frame appearing repeatedly is a systemic hot spot, not a coincidence. " +
       "Also weigh: caches with low hit ratios that still consume heap; EhCache evictions, which mean a cache is sized below its working set; high-cardinality query strings among cached URLs, which fragment the page cache because each distinct query string becomes its own cache key (recommend stripping or normalising those parameters out of the cache key); transformation rules with high max durations, which add a latency tail to the pages they touch; and rules whose condition never matched, which are dead weight. " +

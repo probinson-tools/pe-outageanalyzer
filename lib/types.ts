@@ -289,6 +289,8 @@ export interface StatusSeriesPoint {
   fileName: string;
   instanceId: string;
   instanceKey: string;
+  /** The JVM start time this snapshot reported — a change means the instance restarted. */
+  startTime: string | null;
 
   heapUsedMb: number | null;
   heapAvailableMb: number | null;
@@ -319,13 +321,26 @@ export interface StatusSeriesPoint {
   gcCountDelta: number | null;
   gcTimeDeltaMs: number | null;
   gcMsPerMin: number | null;
+  /** True when the previous snapshot of this instance came from a different JVM run. */
+  restartedSincePrevious: boolean;
 }
 
-/** All snapshots from one JVM run, in time order. A restart starts a new series. */
+/**
+ * Every snapshot from one instance Id, in time order.
+ *
+ * A restart does NOT split the series — the Id is the identity. It is recorded in
+ * `startTimes`/`restartCount` instead, and deltas are suppressed across the boundary
+ * because the JVM's cumulative counters begin again from zero.
+ */
 export interface InstanceSeries {
   key: string;
   instanceId: string;
+  /** First JVM start time observed for this Id. */
   startTime: string | null;
+  /** Every distinct start time seen, in order of first observation. */
+  startTimes: string[];
+  /** startTimes.length - 1, i.e. how many restarts the snapshots caught. */
+  restartCount: number;
   version: string | null;
   propertiesHash: string | null;
   propertiesVersion: string | null;
@@ -400,6 +415,8 @@ export interface StatusAnalysis {
     propertiesVersionDriftDetected: boolean;
     restartDetected: boolean;
     restartedInstanceIds: string[];
+    /** Total restarts observed across the fleet, summed over instances. */
+    restartCount: number;
     peakHeapUsedPct: number | null;
     minHeapAvailableMb: number | null;
     heapPressure: boolean;
@@ -433,6 +450,8 @@ export interface StatusPromptPayload {
   instances: {
     instanceId: string;
     startTime: string | null;
+    startTimes: string[];
+    restartCount: number;
     version: string | null;
     propertiesHash: string | null;
     propertiesVersion: string | null;

@@ -39,7 +39,12 @@ export default function StatusSummaryCards({ analysis }: Props) {
   if (flags.versionDriftDetected) badges.push(<Badge key="ver" tone="red">Version drift across pool</Badge>);
   if (flags.propertiesVersionDriftDetected) badges.push(<Badge key="pver" tone="amber">Properties version mismatch</Badge>);
   if (flags.restartDetected) {
-    badges.push(<Badge key="restart" tone="amber">Restart detected — instance {flags.restartedInstanceIds.join(", ")}</Badge>);
+    badges.push(
+      <Badge key="restart" tone="amber">
+        {flags.restartCount} restart{flags.restartCount === 1 ? "" : "s"} — instance{" "}
+        {flags.restartedInstanceIds.join(", ")}
+      </Badge>
+    );
   }
   if (flags.heapPressure) badges.push(<Badge key="heap" tone="red">Heap pressure</Badge>);
   if (flags.gcPressure) badges.push(<Badge key="gc" tone="red">GC pressure</Badge>);
@@ -64,6 +69,16 @@ export default function StatusSummaryCards({ analysis }: Props) {
           value={fleet.instanceCount}
           sub={flags.configDriftDetected ? "Config drift detected" : "Configs consistent"}
           accent={flags.configDriftDetected ? "text-red-400" : undefined}
+        />
+        <Card
+          label="Restarts"
+          value={flags.restartCount.toLocaleString()}
+          sub={
+            flags.restartDetected
+              ? `instance ${flags.restartedInstanceIds.join(", ")}`
+              : "no JVM restarts observed"
+          }
+          accent={flags.restartDetected ? "text-amber-400" : undefined}
         />
         <Card
           label="Peak Heap Used"

@@ -581,6 +581,7 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
     fileName: s.fileName,
     instanceId: s.instanceId,
     instanceKey,
+    startTime: s.startTime,
     heapUsedMb: heapUsed,
     heapAvailableMb: s.heap?.availableMb ?? null,
     heapMaxMb: heapMax,
@@ -607,6 +608,7 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
     gcCountDelta: null,
     gcTimeDeltaMs: null,
     gcMsPerMin: null,
+    restartedSincePrevious: false,
   };
 }
 
@@ -617,11 +619,22 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
  * cumulative *per JVM since its own start*, so differencing them is only meaningful
  * inside a single run — differencing across the load-balanced pool produces negative
  * request counts and nonsense GC rates.
+ *
+ * A restart is the same hazard inside one Id: the JVM's counters begin again from zero,
+ * so a snapshot taken after a restart would difference to a large negative against the
+ * snapshot before it. The series stays whole (the Id is the identity), but the delta
+ * across that one boundary is left null and the point is marked instead.
  */
 function fillDeltas(points: StatusSeriesPoint[]) {
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const cur = points[i];
+
+    if (prev.startTime && cur.startTime && prev.startTime !== cur.startTime) {
+      cur.restartedSincePrevious = true;
+      continue;
+    }
+
     const deltaMs = cur.time - prev.time;
     if (!Number.isFinite(deltaMs) || deltaMs <= 0) continue;
     const minutes = deltaMs / 60000;
@@ -665,8 +678,10 @@ function appFrames(stack: string[]): string[] {
 /**
  * Combine one or more snapshots into the model the UI renders.
  *
- * Snapshots are keyed by instanceId + startTime: a same-Id JVM with a different start
- * time is a *restart*, and its counters begin again from zero, so it gets its own series.
+ * Snapshots are keyed by instanceId alone: the Id is the server's identity, and a
+ * restart is a thing that happened *to* that server rather than a different server.
+ * Restarts are recorded on the series (startTimes/restartCount) and the delta across
+ * the boundary is suppressed in fillDeltas, since the JVM's counters reset there.
  */
 export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   const ordered = [...snapshots]
@@ -679,13 +694,15 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   // ── Per-instance series ──
   const seriesByKey = new Map<string, InstanceSeries>();
   for (const s of ordered) {
-    const key = `${s.instanceId}@${s.startTime ?? "unknown"}`;
+    const key = s.instanceId;
     let series = seriesByKey.get(key);
     if (!series) {
       series = {
         key,
         instanceId: s.instanceId,
         startTime: s.startTime,
+        startTimes: [],
+        restartCount: 0,
         version: s.version,
         propertiesHash: s.propertiesHash,
         propertiesVersion: s.propertiesVersion,
@@ -694,28 +711,28 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
       };
       seriesByKey.set(key, series);
     }
+    // Ordered by first observation, so startTimes[0] is the run we saw first.
+    if (s.startTime && !series.startTimes.includes(s.startTime)) {
+      series.startTimes.push(s.startTime);
+    }
     series.points.push(toPoint(s, key));
     series.snapshotCount++;
   }
   const instances = [...seriesByKey.values()].sort(
     (a, b) => (a.points[0]?.time ?? 0) - (b.points[0]?.time ?? 0)
   );
-  for (const series of instances) fillDeltas(series.points);
+  for (const series of instances) {
+    fillDeltas(series.points);
+    series.restartCount = Math.max(0, series.startTimes.length - 1);
+  }
 
   // The aggregate view intentionally keeps every point on one axis — including the
   // counter discontinuities that come from hopping between backends.
   const aggregate = instances.flatMap((i) => i.points).sort((a, b) => a.time - b.time);
 
-  // ── Restarts: one Id observed with more than one start time ──
-  const startTimesById = new Map<string, Set<string>>();
-  for (const s of ordered) {
-    if (!s.startTime) continue;
-    if (!startTimesById.has(s.instanceId)) startTimesById.set(s.instanceId, new Set());
-    startTimesById.get(s.instanceId)!.add(s.startTime);
-  }
-  const restartedInstanceIds = [...startTimesById.entries()]
-    .filter(([, starts]) => starts.size > 1)
-    .map(([id]) => id);
+  // ── Restarts: one Id observed reporting more than one JVM start time ──
+  const restartedInstanceIds = instances.filter((i) => i.restartCount > 0).map((i) => i.instanceId);
+  const restartCount = instances.reduce((sum, i) => sum + i.restartCount, 0);
 
   // ── Fleet identity, the source of the config-drift finding ──
   const propertiesHashes = groupValues(all, (s) => s.propertiesHash);
@@ -920,6 +937,7 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
       propertiesVersionDriftDetected: propertiesVersions.length > 1,
       restartDetected: restartedInstanceIds.length > 0,
       restartedInstanceIds,
+      restartCount,
       peakHeapUsedPct,
       minHeapAvailableMb: heapAvail.length ? Math.min(...heapAvail) : null,
       heapPressure: peakHeapUsedPct !== null && peakHeapUsedPct >= HEAP_PRESSURE_PCT,
@@ -982,6 +1000,8 @@ export function toPromptPayload(a: StatusAnalysis): StatusPromptPayload {
     instances: a.instances.map((i) => ({
       instanceId: i.instanceId,
       startTime: i.startTime,
+      startTimes: i.startTimes,
+      restartCount: i.restartCount,
       version: i.version,
       propertiesHash: i.propertiesHash,
       propertiesVersion: i.propertiesVersion,

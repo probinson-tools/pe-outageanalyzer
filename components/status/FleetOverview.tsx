@@ -27,8 +27,9 @@ export default function FleetOverview({ analysis }: Props) {
     <div className="glass rounded-2xl p-6">
       <h3 className="text-slate-100 font-semibold mb-1">Server Fleet</h3>
       <p className="text-slate-500 text-xs mb-5">
-        One row per JVM run. The polled URL is load balanced, so each snapshot lands on whichever
-        backend answered — cumulative counters only line up within a row.
+        One row per instance Id. The polled URL is load balanced, so each snapshot lands on
+        whichever backend answered — cumulative counters only line up within a row, and reset
+        wherever that instance restarted.
       </p>
 
       <div className="overflow-x-auto">
@@ -37,6 +38,7 @@ export default function FleetOverview({ analysis }: Props) {
             <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-white/8">
               <th className="pb-2 pr-4 font-semibold">Instance</th>
               <th className="pb-2 pr-4 font-semibold">Started</th>
+              <th className="pb-2 pr-4 font-semibold text-right">Restarts</th>
               <th className="pb-2 pr-4 font-semibold">Version</th>
               <th className="pb-2 pr-4 font-semibold">Properties Hash</th>
               <th className="pb-2 pr-4 font-semibold text-right">Snapshots</th>
@@ -51,7 +53,9 @@ export default function FleetOverview({ analysis }: Props) {
               const avgRps = avgOf(inst.points.map((p) => p.rps));
               const peakThreads = maxOf(inst.points.map((p) => p.threadCount));
               const rank = inst.propertiesHash ? hashRank.get(inst.propertiesHash) ?? 0 : 0;
-              const restarted = flags.restartedInstanceIds.includes(inst.instanceId);
+              const restarted = inst.restartCount > 0;
+              // After a restart the current run is the most recent start time.
+              const currentStart = inst.startTimes[inst.startTimes.length - 1] ?? inst.startTime;
 
               return (
                 <tr key={inst.key} className="border-b border-white/5 last:border-0">
@@ -59,14 +63,23 @@ export default function FleetOverview({ analysis }: Props) {
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: seriesColor(i) }} />
                       <span className="font-mono text-slate-100">{inst.instanceId}</span>
-                      {restarted && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                          restarted
-                        </span>
-                      )}
                     </div>
                   </td>
-                  <td className="py-2.5 pr-4 text-slate-400 text-xs whitespace-nowrap">{inst.startTime ?? "—"}</td>
+                  <td
+                    className="py-2.5 pr-4 text-slate-400 text-xs whitespace-nowrap"
+                    title={restarted ? `All observed starts:\n${inst.startTimes.join("\n")}` : undefined}
+                  >
+                    {currentStart ?? "—"}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right">
+                    {restarted ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        {inst.restartCount}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 text-xs">0</span>
+                    )}
+                  </td>
                   <td className="py-2.5 pr-4 text-slate-400 text-xs whitespace-nowrap">{inst.version ?? "—"}</td>
                   <td className="py-2.5 pr-4">
                     <span
