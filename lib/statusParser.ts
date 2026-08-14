@@ -2,6 +2,7 @@ import type {
   CacheKeyParam,
   CacheRollup,
   CacheStat,
+  CacheUrlPattern,
   EhCacheStat,
   HttpCacheEntry,
   HttpCacheUrlRollup,
@@ -40,8 +41,22 @@ const CONN_POOL_SATURATION_RATIO = 0.8;
 /** Transforms slower than this are surfaced as the slow list. */
 const SLOW_TRANSFORM_MS = 50;
 
+// ── Cached URL patterns ──
+/** How many path directories make up a pattern. */
+const PATTERN_DIRECTORY_DEPTH = 2;
+/** Below this a pattern is too small to draw a conclusion from. */
+const WASTED_PATTERN_MIN_URLS = 10;
+/** Share of a pattern's URLs that were served exactly once. */
+const WASTED_PATTERN_MIN_SINGLE_PCT = 90;
+/**
+ * Accesses per URL. At 1.0 nothing was ever served twice; the allowance above it keeps
+ * patterns with genuine reuse out of the flag no matter how unique their URLs look.
+ */
+const WASTED_PATTERN_MAX_REUSE = 1.2;
+
 const MAX_HTTP_CACHE_URLS = 250;
 const MAX_CACHE_KEY_PARAMS = 40;
+const MAX_URL_PATTERNS = 60;
 const MAX_PENDING_REQUESTS = 60;
 const MAX_TRANSFORMS = 60;
 const MAX_HOT_FRAMES = 15;
@@ -797,6 +812,90 @@ function computeCacheKeyParams(urls: HttpCacheUrlRollup[]): CacheKeyParam[] {
     .slice(0, MAX_CACHE_KEY_PARAMS);
 }
 
+/**
+ * Group a cached URL to host + its first two path directories.
+ *
+ * The host stays in the pattern because different origins behave completely differently —
+ * a CDN asset host and the site host would otherwise be averaged together and hide the
+ * very signal this is looking for.
+ *
+ * A deeper path keeps a "/*" suffix so "/bill/summary" and "/bill/summary/…" remain
+ * separate rows. That distinction carries real information: an index page can be highly
+ * reused while the per-account pages beneath it are unique by construction.
+ */
+function urlPattern(url: string): string {
+  // Some entries carry a scheme marker before the address (u:https://…).
+  const cleaned = url.replace(/^[a-zA-Z]:(?=https?:\/\/)/, "");
+  const { base } = splitCachedUrl(cleaned);
+  const withoutFragment = base.split("#")[0];
+
+  const m = withoutFragment.match(/^([a-zA-Z][\w+.-]*:\/\/[^/]+)(\/.*)?$/);
+  if (!m) return withoutFragment;
+
+  const host = m[1];
+  const segments = (m[2] ?? "/").split("/").filter(Boolean);
+  const head = segments.slice(0, PATTERN_DIRECTORY_DEPTH).join("/");
+  const deeper = segments.length > PATTERN_DIRECTORY_DEPTH;
+  return `${host}/${head}${deeper ? "/*" : ""}`;
+}
+
+/**
+ * Roll the cached URLs up by pattern and score each one for cache-worthiness.
+ *
+ * Flagging deliberately requires low reuse as well as a high single-access share. In the
+ * sample data a CDN asset pattern had 34 of 37 URLs accessed once — which reads as pure
+ * waste — while drawing 4,367 accesses in total, because a couple of its URLs carry the
+ * whole site. Excluding it from the cache would have been the worst change available.
+ */
+function computeUrlPatterns(urls: HttpCacheUrlRollup[]): {
+  patterns: CacheUrlPattern[];
+  patternCount: number;
+  whollySingleAccessPatterns: number;
+  flaggedSingleAccessUrls: number;
+  flaggedPatternCount: number;
+} {
+  const agg = new Map<string, { urlCount: number; singleAccessCount: number; totalAccesses: number }>();
+
+  for (const u of urls) {
+    const key = urlPattern(u.url);
+    let a = agg.get(key);
+    if (!a) {
+      a = { urlCount: 0, singleAccessCount: 0, totalAccesses: 0 };
+      agg.set(key, a);
+    }
+    a.urlCount++;
+    a.totalAccesses += u.accessCount;
+    if (u.accessCount === 1) a.singleAccessCount++;
+  }
+
+  const scored: CacheUrlPattern[] = [...agg.entries()].map(([pattern, a]) => {
+    const singleAccessPct = a.urlCount ? (a.singleAccessCount / a.urlCount) * 100 : 0;
+    const reuseRatio = a.urlCount ? a.totalAccesses / a.urlCount : 0;
+    return {
+      pattern,
+      urlCount: a.urlCount,
+      singleAccessCount: a.singleAccessCount,
+      singleAccessPct,
+      totalAccesses: a.totalAccesses,
+      reuseRatio,
+      flagged:
+        a.urlCount >= WASTED_PATTERN_MIN_URLS &&
+        singleAccessPct >= WASTED_PATTERN_MIN_SINGLE_PCT &&
+        reuseRatio <= WASTED_PATTERN_MAX_REUSE,
+    };
+  });
+
+  const flagged = scored.filter((p) => p.flagged);
+
+  return {
+    patterns: topN(scored, MAX_URL_PATTERNS, (p) => p.singleAccessCount),
+    patternCount: scored.length,
+    whollySingleAccessPatterns: scored.filter((p) => p.singleAccessCount === p.urlCount).length,
+    flaggedSingleAccessUrls: flagged.reduce((sum, p) => sum + p.singleAccessCount, 0),
+    flaggedPatternCount: flagged.length,
+  };
+}
+
 /** Application frames only — the Tomcat/JDK dispatch frames are the same on every stack. */
 function appFrames(stack: string[]): string[] {
   return stack
@@ -945,6 +1044,9 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   const collapsedIfNoParams = new Set(
     allUrls.filter((u) => u.hasQuery).map((u) => splitCachedUrl(u.url).base)
   ).size;
+  // Also over every cached URL: the waste lives in the long tail, which is exactly what
+  // the displayed top-N list leaves out.
+  const patternStats = computeUrlPatterns(allUrls);
 
   // ── Transforms: peak observed per Id across snapshots. ──
   const transformAcc = new Map<string, TransformStat>();
@@ -1053,11 +1155,17 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     ehCacheRollup,
     httpCacheUrls,
     cacheKeyParams,
+    cacheUrlPatterns: patternStats.patterns,
     httpCacheTotals: {
       distinctUrls: allUrls.length,
       withQuery: allUrls.filter((u) => u.hasQuery).length,
       totalAccesses: allUrls.reduce((a, u) => a + u.accessCount, 0),
       collapsedIfNoParams,
+      singleAccessUrls: allUrls.filter((u) => u.accessCount === 1).length,
+      patternCount: patternStats.patternCount,
+      whollySingleAccessPatterns: patternStats.whollySingleAccessPatterns,
+      flaggedSingleAccessUrls: patternStats.flaggedSingleAccessUrls,
+      flaggedPatternCount: patternStats.flaggedPatternCount,
     },
     staticCaches: all.flatMap((s) => s.staticCaches).filter(
       (c, i, arr) => arr.findIndex((o) => o.name === c.name) === i
@@ -1107,6 +1215,7 @@ const PROMPT_PENDING_REQUESTS = 12;
 const PROMPT_TRANSFORMS = 20;
 const PROMPT_CACHE_URLS = 20;
 const PROMPT_CACHE_KEY_PARAMS = 25;
+const PROMPT_URL_PATTERNS = 20;
 
 function isoOrUnknown(time: number): string {
   return Number.isFinite(time) ? new Date(time).toISOString() : "unknown";
@@ -1176,13 +1285,11 @@ export function toPromptPayload(a: StatusAnalysis): StatusPromptPayload {
     cacheRollup: a.cacheRollup,
     ehCacheRollup: a.ehCacheRollup,
     httpCache: {
-      distinctUrls: a.httpCacheTotals.distinctUrls,
-      withQuery: a.httpCacheTotals.withQuery,
-      totalAccesses: a.httpCacheTotals.totalAccesses,
-      collapsedIfNoParams: a.httpCacheTotals.collapsedIfNoParams,
+      ...a.httpCacheTotals,
       topUrls: a.httpCacheUrls.slice(0, PROMPT_CACHE_URLS),
     },
     cacheKeyParams: a.cacheKeyParams.slice(0, PROMPT_CACHE_KEY_PARAMS),
+    cacheUrlPatterns: a.cacheUrlPatterns.slice(0, PROMPT_URL_PATTERNS),
     transforms: a.transforms.filter((t) => t.maxMs >= SLOW_TRANSFORM_MS).slice(0, PROMPT_TRANSFORMS),
     deadTransformCount: a.neverMatchedTransformIds.length,
     sslErrorHosts: a.sslErrorHosts,
@@ -1208,4 +1315,8 @@ export const STATUS_THRESHOLDS = {
   LOW_HIT_RATIO_PCT,
   SLOW_TRANSFORM_MS,
   MAX_TRANSFORMS,
+  PATTERN_DIRECTORY_DEPTH,
+  WASTED_PATTERN_MIN_URLS,
+  WASTED_PATTERN_MIN_SINGLE_PCT,
+  WASTED_PATTERN_MAX_REUSE,
 };

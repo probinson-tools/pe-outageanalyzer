@@ -11,6 +11,7 @@ import ThreadStateBreakdown from "./status/ThreadStateBreakdown";
 import CacheStatsPanel from "./status/CacheStatsPanel";
 import HttpCachePanel from "./status/HttpCachePanel";
 import CacheKeyParams from "./status/CacheKeyParams";
+import CacheUrlPatterns from "./status/CacheUrlPatterns";
 import TransformStats from "./status/TransformStats";
 import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
@@ -178,6 +179,8 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
       <CacheKeyParams params={analysis.cacheKeyParams} totals={analysis.httpCacheTotals} />
 
       <HttpCachePanel urls={analysis.httpCacheUrls} totals={analysis.httpCacheTotals} />
+
+      <CacheUrlPatterns patterns={analysis.cacheUrlPatterns} totals={analysis.httpCacheTotals} />
 
       <TransformStats transforms={analysis.transforms} neverMatchedIds={analysis.neverMatchedTransformIds} />
 

@@ -155,6 +155,31 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
     lines.push(`- ${u.accessCount.toLocaleString()}x ${u.url}`);
   }
 
+  if (p.cacheUrlPatterns.length) {
+    const h = p.httpCache;
+    lines.push("");
+    lines.push(
+      `CACHED URL PATTERNS BY SINGLE-ACCESS COUNT — ${h.singleAccessUrls.toLocaleString()} of the ` +
+        `${h.distinctUrls.toLocaleString()} cached URLs (${
+          h.distinctUrls ? ((h.singleAccessUrls / h.distinctUrls) * 100).toFixed(1) : "?"
+        }%) were accessed exactly once: fetched from the origin, stored, and never reused. ` +
+        `They fall into ${h.patternCount.toLocaleString()} patterns of host plus two path directories, ` +
+        `of which ${h.whollySingleAccessPatterns.toLocaleString()} had every entry accessed once. ` +
+        `${h.flaggedPatternCount.toLocaleString()} patterns are flagged as no-cache candidates, covering ` +
+        `${h.flaggedSingleAccessUrls.toLocaleString()} of the single-access entries.`
+    );
+    lines.push(
+      "'once' is how many of the pattern's URLs were served a single time; 'reuse' is total accesses divided by URL count, so 1.00 means nothing in the pattern was ever served twice:"
+    );
+    for (const c of p.cacheUrlPatterns) {
+      lines.push(
+        `- ${c.pattern}: ${c.singleAccessCount.toLocaleString()} once of ${c.urlCount.toLocaleString()} URLs ` +
+          `(${c.singleAccessPct.toFixed(0)}%), ${c.totalAccesses.toLocaleString()} accesses, reuse ${c.reuseRatio.toFixed(2)}x` +
+          (c.flagged ? " [FLAGGED as a no-cache candidate]" : "")
+      );
+    }
+  }
+
   if (p.cacheKeyParams.length) {
     lines.push("");
     lines.push(
@@ -248,6 +273,7 @@ export async function POST(req: NextRequest) {
       "Two request rates are reported per instance and they measure different things: the lifetime average since that instance started, which moves slowly and understates current load on a long-running JVM, and the rate over the server's own rolling interval window, which tracks recent traffic. Prefer the interval rate when describing load at the time of the snapshots, and note that the interval window length varies per snapshot — a rate drawn from a very short window is a thin sample and should not be read as a traffic spike on its own. " +
       "Fourth, the IN-FLIGHT REQUESTS section pairs each unfinished request with the stack its thread was executing. Read the application frames (com.motionpoint.* classes and methods) rather than the generic Tomcat/servlet dispatch frames or JDK frames at the bottom — those application frames name the specific operation the request was spending its time in. When a request has been running a long time, name that method or operation explicitly in the synopsis and let it drive at least one recommendation. The MOST FREQUENT APPLICATION FRAMES list shows which code paths recur across in-flight threads; a frame appearing repeatedly is a systemic hot spot, not a coincidence. " +
       "Also weigh: caches with low hit ratios that still consume heap; EhCache evictions, which mean a cache is sized below its working set; transformation rules with high max durations, which add a latency tail to the pages they touch; and rules whose condition never matched, which are dead weight. " +
+      "The CACHED URL PATTERNS section explains a low page-cache hit ratio directly: an entry accessed exactly once was fetched, stored and never reused, so it consumed a round trip and heap for no return. A pattern that combines meaningful volume, a high accessed-once share and a reuse ratio at or near 1.00 is a candidate for a no-cache rule, and the flagged ones already meet all three tests — name them specifically and cite the accessed-once count as the justification. Judge why the pattern cannot be reused where the path makes it evident: URLs carrying a per-account or per-session identifier are unique by construction and can never produce a second hit, which is a stronger argument than the statistics alone. Critically, do not treat a high accessed-once share on its own as waste: a pattern can be almost entirely single-access while a couple of its URLs carry very heavy traffic, which shows up as a high reuse ratio, and excluding such a pattern would remove the most valuable entries in the cache. Never recommend a no-cache rule for a pattern whose reuse ratio is well above 1. Note too that each dump is a point in time, so entries cached shortly beforehand have had no opportunity to be reused and the accessed-once figure is an upper bound on true waste. " +
       "The CACHE KEY PARAMETERS section deserves specific recommendations, and it must be read carefully. Volume alone does not justify excluding a parameter: one that appears on hundreds of URLs while carrying a single value fragments nothing, and excluding it saves nothing. The two figures that matter together are the unique percentage — how much the value churns — and the merge count, which is how many cache entries actually disappear if that parameter alone leaves the key. Name specific parameters rather than giving generic caching advice, and give the merge count as the justification. " +
       "Judgement is required about whether each parameter can safely leave the key: a parameter matching a known ad or analytics click-ID pattern cannot change what the origin returns and is a safe exclusion, whereas a parameter that selects content — a SKU, product code, page number, language, search term, or pagination or filter value — must stay in the key even when its values are highly unique, because excluding it would serve the wrong page. When a parameter's purpose is not clear from its name, say so and recommend confirming with the site owner rather than asserting it is safe. Note also that the merge figures are per-parameter and not additive, so do not add them up into a combined saving, and where a high-volume parameter shows zero merges, explain that a co-occurring parameter is the real cause and that both would have to be excluded together. " +
       "When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes grounded in that documentation rather than generic advice. " +

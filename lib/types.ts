@@ -383,6 +383,32 @@ export interface HttpCacheUrlRollup {
 }
 
 /**
+ * Cached URLs grouped to host + the first two path directories, scored for whether the
+ * pattern is earning its place in the cache.
+ *
+ * An entry accessed exactly once was fetched from the origin, stored, and then never
+ * reused before it expired or was evicted — it cost heap and a round trip and paid
+ * nothing back. A pattern made almost entirely of those is a candidate for a no-cache
+ * rule.
+ *
+ * `reuseRatio` is the guard against reading that backwards: a pattern can be mostly
+ * single-access and still be the hardest-working thing in the cache if a few of its URLs
+ * carry enormous traffic.
+ */
+export interface CacheUrlPattern {
+  /** host + up to two path segments, suffixed "/*" when the real path went deeper. */
+  pattern: string;
+  urlCount: number;
+  singleAccessCount: number;
+  singleAccessPct: number;
+  totalAccesses: number;
+  /** totalAccesses / urlCount. At 1.0 nothing in the pattern was ever served twice. */
+  reuseRatio: number;
+  /** Meets all three thresholds: enough volume, mostly single-access, and no reuse. */
+  flagged: boolean;
+}
+
+/**
  * One query parameter seen across the cached URLs, scored for whether it is worth
  * excluding from the cache key.
  *
@@ -436,12 +462,22 @@ export interface StatusAnalysis {
   ehCacheRollup: EhCacheStat[];
   httpCacheUrls: HttpCacheUrlRollup[];
   cacheKeyParams: CacheKeyParam[];
+  cacheUrlPatterns: CacheUrlPattern[];
   httpCacheTotals: {
     distinctUrls: number;
     withQuery: number;
     totalAccesses: number;
     /** Entries the query-string URLs would collapse to if no parameter were in the key. */
     collapsedIfNoParams: number;
+    /** Cached URLs served exactly once — cached but never reused. */
+    singleAccessUrls: number;
+    /** Distinct host + two-directory patterns, before the display cap. */
+    patternCount: number;
+    /** Patterns where every single cached URL was accessed exactly once. */
+    whollySingleAccessPatterns: number;
+    /** Single-access URLs sitting inside flagged patterns. */
+    flaggedSingleAccessUrls: number;
+    flaggedPatternCount: number;
   };
   staticCaches: StaticCacheStat[];
 
@@ -521,14 +557,9 @@ export interface StatusPromptPayload {
   hotFrames: { frame: string; count: number }[];
   cacheRollup: CacheRollup[];
   ehCacheRollup: EhCacheStat[];
-  httpCache: {
-    distinctUrls: number;
-    withQuery: number;
-    totalAccesses: number;
-    collapsedIfNoParams: number;
-    topUrls: HttpCacheUrlRollup[];
-  };
+  httpCache: StatusAnalysis["httpCacheTotals"] & { topUrls: HttpCacheUrlRollup[] };
   cacheKeyParams: CacheKeyParam[];
+  cacheUrlPatterns: CacheUrlPattern[];
   transforms: TransformStat[];
   deadTransformCount: number;
   sslErrorHosts: SslErrorHost[];
