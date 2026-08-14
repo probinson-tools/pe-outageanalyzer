@@ -10,6 +10,7 @@ import PendingRequestsTable from "./status/PendingRequestsTable";
 import ThreadStateBreakdown from "./status/ThreadStateBreakdown";
 import CacheStatsPanel from "./status/CacheStatsPanel";
 import HttpCachePanel from "./status/HttpCachePanel";
+import CacheKeyParams from "./status/CacheKeyParams";
 import TransformStats from "./status/TransformStats";
 import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
@@ -172,6 +173,8 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
         staticCaches={analysis.staticCaches}
         multiSnapshot={multiSnapshot}
       />
+
+      <CacheKeyParams params={analysis.cacheKeyParams} totals={analysis.httpCacheTotals} />
 
       <HttpCachePanel urls={analysis.httpCacheUrls} totals={analysis.httpCacheTotals} />
 

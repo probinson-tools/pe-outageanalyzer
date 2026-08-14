@@ -1,4 +1,5 @@
 import type {
+  CacheKeyParam,
   CacheRollup,
   CacheStat,
   EhCacheStat,
@@ -40,6 +41,7 @@ const CONN_POOL_SATURATION_RATIO = 0.8;
 const SLOW_TRANSFORM_MS = 50;
 
 const MAX_HTTP_CACHE_URLS = 250;
+const MAX_CACHE_KEY_PARAMS = 40;
 const MAX_PENDING_REQUESTS = 60;
 const MAX_TRANSFORMS = 60;
 const MAX_HOT_FRAMES = 15;
@@ -668,6 +670,124 @@ function groupValues(
     .sort((a, b) => b.instanceIds.length - a.instanceIds.length);
 }
 
+/**
+ * Query parameters that are ad-network or analytics click IDs in essentially every
+ * deployment. Matching one is a hint that the parameter cannot affect the origin
+ * response, not a verdict — the operator still confirms before changing a cache key.
+ */
+const TRACKING_PARAMS = new Set([
+  "gclid", "gclsrc", "gad_campaignid", "gad_source", "gbraid", "wbraid", "dclid",
+  "fbclid", "msclkid", "ttclid", "twclid", "yclid", "li_fat_id", "igshid", "epik",
+  "irclickid", "sscid", "mc_cid", "mc_eid", "ef_id", "s_kwcid", "rb_clickid",
+  "cmp", "cmpid", "icid", "icmp", "mkwid", "pcrid",
+]);
+const TRACKING_PREFIXES = ["utm_", "_branch_", "at_", "pk_", "mtm_"];
+
+function isTrackingParam(name: string): boolean {
+  const lower = name.toLowerCase();
+  return TRACKING_PARAMS.has(lower) || TRACKING_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+/**
+ * Split a cached URL into its path and ordered query pairs.
+ *
+ * Deliberately hand-rolled rather than using `new URL()`: some entries carry a scheme
+ * marker before the address (`u:https://…`), which the URL constructor rejects outright,
+ * and everything needed here is a plain string split.
+ */
+function splitCachedUrl(url: string): { base: string; pairs: [string, string][] } {
+  const q = url.indexOf("?");
+  if (q < 0) return { base: url, pairs: [] };
+  const base = url.slice(0, q);
+  const pairs: [string, string][] = [];
+  for (const part of url.slice(q + 1).split("&")) {
+    if (!part) continue;
+    const eq = part.indexOf("=");
+    const rawKey = eq < 0 ? part : part.slice(0, eq);
+    const rawVal = eq < 0 ? "" : part.slice(eq + 1);
+    let key = rawKey;
+    let val = rawVal;
+    try {
+      key = decodeURIComponent(rawKey);
+      val = decodeURIComponent(rawVal);
+    } catch {
+      // Malformed percent-encoding — keep the raw text rather than dropping the pair.
+    }
+    pairs.push([key, val]);
+  }
+  return { base, pairs };
+}
+
+/** Cache key for a URL with one parameter removed, order-normalised so it compares. */
+function keyWithout(base: string, pairs: [string, string][], omit: string): string {
+  return (
+    base +
+    "?" +
+    pairs
+      .filter(([k]) => k !== omit)
+      .map(([k, v]) => `${k}=${v}`)
+      .sort()
+      .join("&")
+  );
+}
+
+/**
+ * Score every query parameter in the cached URLs for cache-key exclusion.
+ *
+ * `collapsesTo` is the number the decision actually rests on: drop this parameter from
+ * the key and that many cache entries merge into ones already present. It is computed
+ * per parameter in isolation, so the values are NOT additive — two parameters that
+ * co-occur on the same URLs each report the merge that the other would also achieve,
+ * and a parameter can report zero purely because a co-occurring one still splits those
+ * URLs apart.
+ */
+function computeCacheKeyParams(urls: HttpCacheUrlRollup[]): CacheKeyParam[] {
+  const parsed = urls
+    .filter((u) => u.hasQuery)
+    .map((u) => ({ ...u, ...splitCachedUrl(u.url) }));
+
+  // Index by parameter so each one only walks the URLs that actually carry it.
+  const byParam = new Map<string, number[]>();
+  parsed.forEach((p, i) => {
+    for (const [k] of p.pairs) {
+      const list = byParam.get(k);
+      if (list) {
+        if (list[list.length - 1] !== i) list.push(i);
+      } else {
+        byParam.set(k, [i]);
+      }
+    }
+  });
+
+  const out: CacheKeyParam[] = [];
+  for (const [name, indices] of byParam.entries()) {
+    const values = new Set<string>();
+    const collapsed = new Set<string>();
+    let accessCount = 0;
+    for (const i of indices) {
+      const p = parsed[i];
+      accessCount += p.accessCount;
+      for (const [k, v] of p.pairs) if (k === name) values.add(v);
+      collapsed.add(keyWithout(p.base, p.pairs, name));
+    }
+    out.push({
+      name,
+      urlCount: indices.length,
+      accessCount,
+      distinctValues: values.size,
+      uniquenessPct: indices.length ? (values.size / indices.length) * 100 : 0,
+      collapsesTo: indices.length - collapsed.size,
+      likelyTracking: isTrackingParam(name),
+    });
+  }
+
+  // Sorted by volume — how many cached entries carry the parameter — with the
+  // collapse figure breaking ties.
+  return out
+    .sort((a, b) => b.urlCount - a.urlCount || b.collapsesTo - a.collapsesTo)
+    .slice(0, MAX_CACHE_KEY_PARAMS);
+}
+
 /** Application frames only — the Tomcat/JDK dispatch frames are the same on every stack. */
 function appFrames(stack: string[]): string[] {
   return stack
@@ -810,6 +930,12 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     hasQuery: url.includes("?"),
   }));
   const httpCacheUrls = topN(allUrls, MAX_HTTP_CACHE_URLS, (u) => u.accessCount);
+  // Scored over *every* cached URL, not the displayed top-N — fragmentation is a
+  // property of the whole cache, and the long tail is where most of it lives.
+  const cacheKeyParams = computeCacheKeyParams(allUrls);
+  const collapsedIfNoParams = new Set(
+    allUrls.filter((u) => u.hasQuery).map((u) => splitCachedUrl(u.url).base)
+  ).size;
 
   // ── Transforms: peak observed per Id across snapshots. ──
   const transformAcc = new Map<string, TransformStat>();
@@ -917,10 +1043,12 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     cacheRollup,
     ehCacheRollup,
     httpCacheUrls,
+    cacheKeyParams,
     httpCacheTotals: {
       distinctUrls: allUrls.length,
       withQuery: allUrls.filter((u) => u.hasQuery).length,
       totalAccesses: allUrls.reduce((a, u) => a + u.accessCount, 0),
+      collapsedIfNoParams,
     },
     staticCaches: all.flatMap((s) => s.staticCaches).filter(
       (c, i, arr) => arr.findIndex((o) => o.name === c.name) === i
@@ -969,6 +1097,7 @@ const PROMPT_STACK_FRAMES = 15;
 const PROMPT_PENDING_REQUESTS = 12;
 const PROMPT_TRANSFORMS = 20;
 const PROMPT_CACHE_URLS = 20;
+const PROMPT_CACHE_KEY_PARAMS = 25;
 
 function isoOrUnknown(time: number): string {
   return Number.isFinite(time) ? new Date(time).toISOString() : "unknown";
@@ -1040,8 +1169,10 @@ export function toPromptPayload(a: StatusAnalysis): StatusPromptPayload {
       distinctUrls: a.httpCacheTotals.distinctUrls,
       withQuery: a.httpCacheTotals.withQuery,
       totalAccesses: a.httpCacheTotals.totalAccesses,
+      collapsedIfNoParams: a.httpCacheTotals.collapsedIfNoParams,
       topUrls: a.httpCacheUrls.slice(0, PROMPT_CACHE_URLS),
     },
+    cacheKeyParams: a.cacheKeyParams.slice(0, PROMPT_CACHE_KEY_PARAMS),
     transforms: a.transforms.filter((t) => t.maxMs >= SLOW_TRANSFORM_MS).slice(0, PROMPT_TRANSFORMS),
     deadTransformCount: a.neverMatchedTransformIds.length,
     sslErrorHosts: a.sslErrorHosts,

@@ -371,6 +371,29 @@ export interface HttpCacheUrlRollup {
   hasQuery: boolean;
 }
 
+/**
+ * One query parameter seen across the cached URLs, scored for whether it is worth
+ * excluding from the cache key.
+ *
+ * Volume alone does not make a parameter a good candidate — a parameter on 500 URLs
+ * that always carries the same value fragments nothing. What matters is `collapsesTo`:
+ * how many cache entries would merge away if this parameter stopped being part of the key.
+ */
+export interface CacheKeyParam {
+  name: string;
+  /** Distinct cached URLs carrying this parameter. */
+  urlCount: number;
+  /** Summed peak access count of those URLs. */
+  accessCount: number;
+  distinctValues: number;
+  /** distinctValues / urlCount as a percentage; 100% means every use is unique. */
+  uniquenessPct: number;
+  /** Cache entries that would disappear if this parameter were dropped from the key. */
+  collapsesTo: number;
+  /** Matches a well-known ad/analytics click-ID pattern. A hint, not a verdict. */
+  likelyTracking: boolean;
+}
+
 export interface PendingRequestOccurrence extends PendingRequest {
   time: number;
   instanceId: string;
@@ -401,7 +424,14 @@ export interface StatusAnalysis {
   cacheRollup: CacheRollup[];
   ehCacheRollup: EhCacheStat[];
   httpCacheUrls: HttpCacheUrlRollup[];
-  httpCacheTotals: { distinctUrls: number; withQuery: number; totalAccesses: number };
+  cacheKeyParams: CacheKeyParam[];
+  httpCacheTotals: {
+    distinctUrls: number;
+    withQuery: number;
+    totalAccesses: number;
+    /** Entries the query-string URLs would collapse to if no parameter were in the key. */
+    collapsedIfNoParams: number;
+  };
   staticCaches: StaticCacheStat[];
 
   transforms: TransformStat[];
@@ -483,8 +513,10 @@ export interface StatusPromptPayload {
     distinctUrls: number;
     withQuery: number;
     totalAccesses: number;
+    collapsedIfNoParams: number;
     topUrls: HttpCacheUrlRollup[];
   };
+  cacheKeyParams: CacheKeyParam[];
   transforms: TransformStat[];
   deadTransformCount: number;
   sslErrorHosts: SslErrorHost[];

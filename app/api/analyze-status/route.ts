@@ -148,6 +148,32 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
     lines.push(`- ${u.accessCount.toLocaleString()}x ${u.url}`);
   }
 
+  if (p.cacheKeyParams.length) {
+    lines.push("");
+    lines.push(
+      `CACHE KEY PARAMETERS — the ${p.httpCache.withQuery.toLocaleString()} cached URLs carrying a query string ` +
+        `cover only ${p.httpCache.collapsedIfNoParams.toLocaleString()} distinct paths, so parameters are splitting ` +
+        `each path into roughly ${
+          p.httpCache.collapsedIfNoParams
+            ? (p.httpCache.withQuery / p.httpCache.collapsedIfNoParams).toFixed(1)
+            : "?"
+        } entries on average.`
+    );
+    lines.push(
+      "Listed by volume. 'merges' is how many cache entries would disappear if that parameter alone were dropped from the cache key; " +
+        "'unique' is the share of its occurrences carrying a distinct value. These merge figures are measured per parameter in isolation and are NOT additive — " +
+        "parameters that co-occur each report a merge the other would also achieve, and a parameter can show 0 merges purely because a co-occurring parameter still splits those URLs:"
+    );
+    for (const c of p.cacheKeyParams) {
+      lines.push(
+        `- ${c.name}: on ${c.urlCount.toLocaleString()} cached URLs (${c.accessCount.toLocaleString()} accesses), ` +
+          `${c.distinctValues.toLocaleString()} distinct values (${c.uniquenessPct.toFixed(0)}% unique), ` +
+          `merges ${c.collapsesTo.toLocaleString()} entries if excluded` +
+          (c.likelyTracking ? " [matches a known ad/analytics click-ID pattern]" : "")
+      );
+    }
+  }
+
   if (p.transforms.length) {
     lines.push("");
     lines.push("SLOWEST TRANSFORMATION RULES (peak observed per Id):");
@@ -213,7 +239,9 @@ export async function POST(req: NextRequest) {
       "Second, the polled URL is load balanced, so consecutive snapshots routinely come from different backends: a different instance Id is a different JVM, not the same server regressing. A counter that appears to drop between snapshots of different instances is an artifact of that routing, not an incident — do not report it as one. Per-instance figures above are already computed correctly; use them. The instance Id is the server's identity even across a restart, so an instance marked RESTARTED is still one server: its counters simply began again from zero at that point, and the per-interval figures above already exclude the boundary. Treat a restart as an event worth explaining (unplanned restarts during an incident window matter, and heap or GC readings taken shortly after one reflect a cold JVM, not steady state) rather than as evidence of a counter regression. " +
       "Third, the Properties Hash is a hash of the instance's effective configuration that already excludes host-specific keys (host.server.id, host.name.internal, local.server.id, replication.mode). Identical configurations therefore hash identically. If more than one hash appears across the pool — especially while every instance reports the same properties version — that is genuine configuration drift between backends serving the same site, and it means identical traffic can get different behaviour depending on which backend answers. Treat that as a first-class finding, explain the operational consequence, and recommend how to reconcile it. " +
       "Fourth, the IN-FLIGHT REQUESTS section pairs each unfinished request with the stack its thread was executing. Read the application frames (com.motionpoint.* classes and methods) rather than the generic Tomcat/servlet dispatch frames or JDK frames at the bottom — those application frames name the specific operation the request was spending its time in. When a request has been running a long time, name that method or operation explicitly in the synopsis and let it drive at least one recommendation. The MOST FREQUENT APPLICATION FRAMES list shows which code paths recur across in-flight threads; a frame appearing repeatedly is a systemic hot spot, not a coincidence. " +
-      "Also weigh: caches with low hit ratios that still consume heap; EhCache evictions, which mean a cache is sized below its working set; high-cardinality query strings among cached URLs, which fragment the page cache because each distinct query string becomes its own cache key (recommend stripping or normalising those parameters out of the cache key); transformation rules with high max durations, which add a latency tail to the pages they touch; and rules whose condition never matched, which are dead weight. " +
+      "Also weigh: caches with low hit ratios that still consume heap; EhCache evictions, which mean a cache is sized below its working set; transformation rules with high max durations, which add a latency tail to the pages they touch; and rules whose condition never matched, which are dead weight. " +
+      "The CACHE KEY PARAMETERS section deserves specific recommendations, and it must be read carefully. Volume alone does not justify excluding a parameter: one that appears on hundreds of URLs while carrying a single value fragments nothing, and excluding it saves nothing. The two figures that matter together are the unique percentage — how much the value churns — and the merge count, which is how many cache entries actually disappear if that parameter alone leaves the key. Name specific parameters rather than giving generic caching advice, and give the merge count as the justification. " +
+      "Judgement is required about whether each parameter can safely leave the key: a parameter matching a known ad or analytics click-ID pattern cannot change what the origin returns and is a safe exclusion, whereas a parameter that selects content — a SKU, product code, page number, language, search term, or pagination or filter value — must stay in the key even when its values are highly unique, because excluding it would serve the wrong page. When a parameter's purpose is not clear from its name, say so and recommend confirming with the site owner rather than asserting it is safe. Note also that the merge figures are per-parameter and not additive, so do not add them up into a combined saving, and where a high-volume parameter shows zero merges, explain that a co-occurring parameter is the real cause and that both would have to be excluded together. " +
       "When Confluence reference material (Master Properties, Release Notes, Site Down runbooks) is provided, use it to recommend specific configuration changes grounded in that documentation rather than generic advice. " +
       "Be honest about what the data supports: if the snapshots show a healthy server, say so plainly and keep recommendations proportionate rather than inventing an incident.";
 
