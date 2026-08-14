@@ -236,7 +236,9 @@ export interface StatusSnapshot {
   };
   sslErrorHosts: SslErrorHost[];
 
-  // Rolling window, capped at 60 min — windowMin says how much history it actually covers.
+  // The server's own rolling window. Its length is not fixed and not capped — 1 to 100
+  // minutes has been observed — so windowMin must be read alongside the counts to know
+  // how much history they cover.
   intervalErrors: {
     totalRequests: number | null;
     windowMin: number | null;
@@ -300,7 +302,16 @@ export interface StatusSeriesPoint {
   gcCollections: number | null;
   gcTimeMs: number | null;
   completedTotal: number | null;
+  /** Lifetime average req/s the server reports, over the whole run since start. */
   rps: number | null;
+  /**
+   * Requests per second over the server's own rolling interval window, derived from
+   * "Total requests: N in Mmin". Far more responsive than the lifetime average, but the
+   * window length varies (1–100 min observed), so short windows give a noisier rate —
+   * `intervalWindowMin` says how much history each point actually covers.
+   */
+  intervalRps: number | null;
+  intervalWindowMin: number | null;
   avgRespPage: number | null;
   pendingCount: number;
   connLeased: number | null;
@@ -490,6 +501,7 @@ export interface StatusPromptPayload {
     minHeapAvailableMb: number | null;
     peakThreadCount: number | null;
     avgRps: number | null;
+    avgIntervalRps: number | null;
     avgRespPage: number | null;
     peakGcMsPerMin: number | null;
     requestsObserved: number | null;

@@ -28,7 +28,8 @@ interface Props {
 const HEAP_METRICS: Metric[] = [{ key: "heapUsedPct", name: "Heap Used %", color: "#a855f7" }];
 const GC_METRICS: Metric[] = [{ key: "gcMsPerMin", name: "GC ms per minute", color: "#ef4444" }];
 const THROUGHPUT_METRICS: Metric[] = [
-  { key: "rps", name: "Requests / sec", color: "#60a5fa" },
+  { key: "rps", name: "Requests / sec (since start)", color: "#60a5fa" },
+  { key: "intervalRps", name: "Interval requests / sec", color: "#fbbf24" },
   { key: "avgRespPage", name: "Avg page response (s)", color: "#34d399" },
 ];
 const THREAD_METRICS: Metric[] = [{ key: "threadCount", name: "Threads", color: "#60a5fa" }];
@@ -133,7 +134,7 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
       <StatusChart
         {...chartProps}
         title="Throughput & Response Time"
-        subtitle="Requests per second and average page response time as reported by each instance"
+        subtitle="Two request rates and the average page response time. The first is the lifetime average since the instance started, so it moves slowly; the second is derived from the server's rolling interval counter (Total requests: N in M min) and tracks recent load much more closely. That window is not fixed — a short one covers little history and gives a spikier reading."
         metrics={THROUGHPUT_METRICS}
       />
 
@@ -154,7 +155,7 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
       <StatusChart
         {...chartProps}
         title="Interval Errors"
-        subtitle="Errors counted in each instance's rolling window (capped at 60 minutes since start)"
+        subtitle="Errors counted in each instance's own rolling window, whose length varies per snapshot — see the interval request rate above for how much history each window covers"
         metrics={ERROR_METRICS}
       />
 

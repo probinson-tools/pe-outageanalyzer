@@ -384,7 +384,7 @@ export function parseStatusDump(html: string, fileName: string): StatusSnapshot 
     sslErrorHosts.push({ host: m[1], count: num0(m[2]), pct: num(m[3]) });
   }
 
-  // ── Interval Errors (rolling window, capped at 60 min) ──
+  // ── Interval Errors (the server's rolling window; length varies per snapshot) ──
   const intervalText = section(text, "Interval Errors:");
   const intervalTotal = intervalText.match(/Total requests: (\d+) in (\d+)min/);
   const intervalErrors = intervalText.trim()
@@ -578,6 +578,13 @@ function findCache(snapshot: StatusSnapshot, name: string): CacheStat | undefine
 function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
   const heapUsed = s.heap?.usedMb ?? null;
   const heapMax = s.heap?.maxMb ?? null;
+
+  // "Total requests: 35369 in 35min" → requests per second over that window. The
+  // window is the server's own rolling counter, not the poll interval, and it is
+  // neither fixed nor capped — 1 to 100 minutes has been observed.
+  const ivTotal = s.intervalErrors?.totalRequests ?? null;
+  const ivWindow = s.intervalErrors?.windowMin ?? null;
+  const intervalRps = ivTotal !== null && ivWindow !== null && ivWindow > 0 ? ivTotal / (ivWindow * 60) : null;
   return {
     time: s.time,
     fileName: s.fileName,
@@ -593,6 +600,8 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
     gcTimeMs: s.gc?.collectionTimeMs ?? null,
     completedTotal: s.completed.total,
     rps: s.load.total,
+    intervalRps,
+    intervalWindowMin: ivWindow,
     avgRespPage: s.avgResponse.page,
     pendingCount: s.pendingRequests.length,
     connLeased: s.httpClientPool?.leased ?? null,
@@ -1142,6 +1151,7 @@ export function toPromptPayload(a: StatusAnalysis): StatusPromptPayload {
       })(),
       peakThreadCount: maxOrNull(i.points.map((p) => p.threadCount)),
       avgRps: avg(i.points.map((p) => p.rps)),
+      avgIntervalRps: avg(i.points.map((p) => p.intervalRps)),
       avgRespPage: avg(i.points.map((p) => p.avgRespPage)),
       peakGcMsPerMin: maxOrNull(i.points.map((p) => p.gcMsPerMin)),
       // Sum of intra-instance deltas — real requests served over the observed window.

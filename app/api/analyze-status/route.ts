@@ -36,7 +36,8 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
       `    peak heap ${i.peakHeapUsedPct !== null ? i.peakHeapUsedPct.toFixed(1) + "%" : "n/a"}, ` +
         `min heap free ${i.minHeapAvailableMb !== null ? i.minHeapAvailableMb.toLocaleString() + " MB" : "n/a"}, ` +
         `peak threads ${i.peakThreadCount ?? "n/a"}, ` +
-        `avg ${i.avgRps !== null ? i.avgRps.toFixed(2) + " req/s" : "n/a"}, ` +
+        `avg ${i.avgRps !== null ? i.avgRps.toFixed(2) + " req/s since start" : "n/a"}, ` +
+        `avg ${i.avgIntervalRps !== null ? i.avgIntervalRps.toFixed(2) + " req/s over the rolling interval windows" : "n/a"}, ` +
         `avg page response ${i.avgRespPage !== null ? i.avgRespPage.toFixed(3) + "s" : "n/a"}, ` +
         `peak GC ${i.peakGcMsPerMin !== null ? Math.round(i.peakGcMsPerMin) + " ms/min" : "n/a"}, ` +
         `requests observed over the window ${i.requestsObserved !== null ? i.requestsObserved.toLocaleString() : "n/a"}`
@@ -83,10 +84,16 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
 
   if (p.intervalErrorSamples.length) {
     lines.push("");
-    lines.push("INTERVAL ERROR COUNTERS (each instance's own rolling window, capped at 60 min):");
+    lines.push(
+      "INTERVAL COUNTERS (each instance's own rolling window; the window length is not fixed, so read every count against its own window):"
+    );
     for (const s of p.intervalErrorSamples) {
+      const rate =
+        s.totalRequests !== null && s.windowMin !== null && s.windowMin > 0
+          ? ` = ${(s.totalRequests / (s.windowMin * 60)).toFixed(2)} req/s over that window`
+          : "";
       lines.push(
-        `- ${s.time} instance ${s.instanceId}: ${s.totalRequests?.toLocaleString() ?? "?"} requests in ${s.windowMin ?? "?"} min — ` +
+        `- ${s.time} instance ${s.instanceId}: ${s.totalRequests?.toLocaleString() ?? "?"} requests in ${s.windowMin ?? "?"} min${rate} — ` +
           `connection ${s.connection ?? 0}, database ${s.database ?? 0}, OOM ${s.oom ?? 0}, other ${s.other ?? 0}`
       );
     }
@@ -238,6 +245,7 @@ export async function POST(req: NextRequest) {
       "First, every cumulative counter (Completed Requests, total GCs, total collection time, LRU evictions, EhCache gets/hits, HTTP cache AccessCount, transform matches) is counted per instance since that instance's own start time. Never compare or subtract them across instances. " +
       "Second, the polled URL is load balanced, so consecutive snapshots routinely come from different backends: a different instance Id is a different JVM, not the same server regressing. A counter that appears to drop between snapshots of different instances is an artifact of that routing, not an incident — do not report it as one. Per-instance figures above are already computed correctly; use them. The instance Id is the server's identity even across a restart, so an instance marked RESTARTED is still one server: its counters simply began again from zero at that point, and the per-interval figures above already exclude the boundary. Treat a restart as an event worth explaining (unplanned restarts during an incident window matter, and heap or GC readings taken shortly after one reflect a cold JVM, not steady state) rather than as evidence of a counter regression. " +
       "Third, the Properties Hash is a hash of the instance's effective configuration that already excludes host-specific keys (host.server.id, host.name.internal, local.server.id, replication.mode). Identical configurations therefore hash identically. If more than one hash appears across the pool — especially while every instance reports the same properties version — that is genuine configuration drift between backends serving the same site, and it means identical traffic can get different behaviour depending on which backend answers. Treat that as a first-class finding, explain the operational consequence, and recommend how to reconcile it. " +
+      "Two request rates are reported per instance and they measure different things: the lifetime average since that instance started, which moves slowly and understates current load on a long-running JVM, and the rate over the server's own rolling interval window, which tracks recent traffic. Prefer the interval rate when describing load at the time of the snapshots, and note that the interval window length varies per snapshot — a rate drawn from a very short window is a thin sample and should not be read as a traffic spike on its own. " +
       "Fourth, the IN-FLIGHT REQUESTS section pairs each unfinished request with the stack its thread was executing. Read the application frames (com.motionpoint.* classes and methods) rather than the generic Tomcat/servlet dispatch frames or JDK frames at the bottom — those application frames name the specific operation the request was spending its time in. When a request has been running a long time, name that method or operation explicitly in the synopsis and let it drive at least one recommendation. The MOST FREQUENT APPLICATION FRAMES list shows which code paths recur across in-flight threads; a frame appearing repeatedly is a systemic hot spot, not a coincidence. " +
       "Also weigh: caches with low hit ratios that still consume heap; EhCache evictions, which mean a cache is sized below its working set; transformation rules with high max durations, which add a latency tail to the pages they touch; and rules whose condition never matched, which are dead weight. " +
       "The CACHE KEY PARAMETERS section deserves specific recommendations, and it must be read carefully. Volume alone does not justify excluding a parameter: one that appears on hundreds of URLs while carrying a single value fragments nothing, and excluding it saves nothing. The two figures that matter together are the unique percentage — how much the value churns — and the merge count, which is how many cache entries actually disappear if that parameter alone leaves the key. Name specific parameters rather than giving generic caching advice, and give the merge count as the justification. " +
