@@ -379,6 +379,8 @@ export interface CacheRollup {
   evictions: Stat3;
   /** Snapshots that reported this cache. */
   samples: number;
+  /** Distinct server instances that reported it. */
+  instances: number;
 }
 
 /**

@@ -147,7 +147,7 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
         `${fmtStat(c.entries, (n) => Math.round(n).toLocaleString())} entries, ` +
         `${fmtStat(c.dataSizeMb, (n) => n.toFixed(1))} MB, ` +
         `${fmtStat(c.evictions, (n) => Math.round(n).toLocaleString())} LRU evictions ` +
-        `(over ${c.samples} snapshot${c.samples === 1 ? "" : "s"})`
+        `(over ${c.samples} snapshot${c.samples === 1 ? "" : "s"} from ${c.instances} instance${c.instances === 1 ? "" : "s"})`
     );
   }
   if (f.lowHitRatioCaches.length) {

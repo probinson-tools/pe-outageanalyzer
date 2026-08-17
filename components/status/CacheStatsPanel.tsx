@@ -82,14 +82,32 @@ function RatioBar({ value }: { value: number | null }) {
   );
 }
 
+/** "(across 3 instances)" — how many backends contributed to the figures below. */
+function InstanceNote({ instances }: { instances: number }) {
+  if (!instances) return null;
+  return (
+    <span className="text-slate-500 font-normal text-xs ml-1.5">
+      (across {instances} instance{instances === 1 ? "" : "s"})
+    </span>
+  );
+}
+
 export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiSnapshot }: Props) {
   if (!caches.length && !ehCaches.length && !staticCaches.length) return null;
+
+  // Counted per card rather than taken from the fleet total, so a cache reported by only
+  // some of the backends is not credited to instances that never mentioned it.
+  const cacheInstances = caches.length ? Math.max(...caches.map((c) => c.instances)) : 0;
+  const ehInstances = ehCaches.length ? Math.max(...ehCaches.map((e) => e.gets.instances)) : 0;
 
   return (
     <div className="space-y-8">
       {caches.length > 0 && (
         <div className="glass rounded-2xl p-6">
-          <h3 className="text-slate-100 font-semibold mb-1">Cache Hit Ratios</h3>
+          <h3 className="text-slate-100 font-semibold mb-1">
+            Cache Hit Ratios
+            <InstanceNote instances={cacheInstances} />
+          </h3>
           <p className="text-slate-500 text-xs mb-5">
             Page, segment and file caches.{" "}
             {multiSnapshot
@@ -164,7 +182,10 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
 
       {ehCaches.length > 0 && (
         <div className="glass rounded-2xl p-6">
-          <h3 className="text-slate-100 font-semibold mb-1">EhCache</h3>
+          <h3 className="text-slate-100 font-semibold mb-1">
+            EhCache
+            <InstanceNote instances={ehInstances} />
+          </h3>
           <p className="text-slate-500 text-xs mb-5">
             Counters are cumulative since each instance started, so no single snapshot describes the
             pool. Gets, misses, evictions and on-heap size are <span className="text-slate-400">fleet

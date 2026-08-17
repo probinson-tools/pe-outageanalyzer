@@ -1035,19 +1035,26 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   // instead, and the min/max is what shows how much the instances actually disagree. ──
   const cacheAcc = new Map<
     string,
-    { ratios: number[]; entries: number[]; sizes: number[]; evictions: number[] }
+    {
+      ratios: number[];
+      entries: number[];
+      sizes: number[];
+      evictions: number[];
+      instances: Set<string>;
+    }
   >();
   for (const s of all) {
     for (const c of [...s.caches, ...(s.httpPageCache ? [s.httpPageCache] : [])]) {
       let acc = cacheAcc.get(c.name);
       if (!acc) {
-        acc = { ratios: [], entries: [], sizes: [], evictions: [] };
+        acc = { ratios: [], entries: [], sizes: [], evictions: [], instances: new Set() };
         cacheAcc.set(c.name, acc);
       }
       if (c.hitRatio !== null) acc.ratios.push(c.hitRatio);
       acc.entries.push(c.entries);
       acc.sizes.push(c.dataSizeMb);
       acc.evictions.push(c.lruEvictions);
+      acc.instances.add(s.instanceId);
     }
   }
   const cacheRollup: CacheRollup[] = [...cacheAcc.entries()].map(([name, acc]) => ({
@@ -1057,6 +1064,7 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     dataSizeMb: stat3(acc.sizes),
     evictions: stat3(acc.evictions),
     samples: acc.entries.length,
+    instances: acc.instances.size,
   }));
 
   // EhCache counters are cumulative since each instance started, so no single snapshot
