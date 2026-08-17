@@ -1,11 +1,11 @@
 "use client";
 
 import { STATUS_THRESHOLDS } from "@/lib/statusParser";
-import type { CacheRollup, EhCacheStat, StaticCacheStat } from "@/lib/types";
+import type { CacheRollup, EhCacheRollup, StaticCacheStat, Stat3 } from "@/lib/types";
 
 interface Props {
   caches: CacheRollup[];
-  ehCaches: EhCacheStat[];
+  ehCaches: EhCacheRollup[];
   staticCaches: StaticCacheStat[];
   multiSnapshot: boolean;
 }
@@ -15,9 +15,33 @@ function pct(v: number | null): string {
 }
 
 function mb(bytes: number): string {
-  // EhCache reports -1 when on-heap sizing is disabled for that cache.
-  if (bytes < 0) return "n/a";
   return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function count(v: number): string {
+  return Math.round(v).toLocaleString();
+}
+
+/**
+ * Average with the observed range beside it. The range is dropped when there is only one
+ * sample, or when every snapshot agreed — repeating the same number three times is noise.
+ */
+function Ranged({ stat, format }: { stat: Stat3 | null; format: (n: number) => string }) {
+  if (!stat) return <span className="text-slate-500">—</span>;
+  const lo = format(stat.min);
+  const hi = format(stat.max);
+  // Compared after formatting: values that differ only below the displayed precision
+  // would otherwise render a pointless "(100.00–100.00)".
+  return (
+    <span className="whitespace-nowrap">
+      {format(stat.avg)}
+      {lo !== hi && (
+        <span className="text-slate-600 ml-1">
+          ({lo}–{hi})
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** Proportional bar; colour tracks whether the cache is actually earning its memory. */
@@ -45,7 +69,7 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
           <p className="text-slate-500 text-xs mb-5">
             Page, segment and file caches.{" "}
             {multiSnapshot
-              ? "Hit ratios are averaged across snapshots; entries and size are the latest reading."
+              ? "Every figure is the average across snapshots, with the observed range in parentheses. Because the polled URL is load balanced, a single reading would be whichever backend answered last — a wide range means the instances genuinely disagree."
               : "Point-in-time reading from a single snapshot."}{" "}
             A cache below {STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT}% is holding memory without saving many origin fetches.
           </p>
@@ -70,24 +94,30 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                       <div className="space-y-1">
                         <span
                           className={`text-xs font-medium ${
-                            c.avgHitRatio !== null && c.avgHitRatio < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
+                            c.hitRatio && c.hitRatio.avg < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
                               ? "text-amber-400"
                               : "text-slate-200"
                           }`}
                         >
-                          {pct(c.avgHitRatio)}
+                          {pct(c.hitRatio?.avg ?? null)}
                         </span>
-                        <RatioBar value={c.avgHitRatio} />
+                        <RatioBar value={c.hitRatio?.avg ?? null} />
                       </div>
                     </td>
                     {multiSnapshot && (
                       <td className="py-2.5 pr-4 text-right text-slate-500 text-xs whitespace-nowrap">
-                        {pct(c.minHitRatio)} / {pct(c.maxHitRatio)}
+                        {pct(c.hitRatio?.min ?? null)} / {pct(c.hitRatio?.max ?? null)}
                       </td>
                     )}
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">{c.latestEntries.toLocaleString()}</td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">{c.latestDataSizeMb.toLocaleString()} MB</td>
-                    <td className="py-2.5 text-right text-slate-400 text-xs">{c.totalEvictions.toLocaleString()}</td>
+                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                      <Ranged stat={c.entries} format={count} />
+                    </td>
+                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                      <Ranged stat={c.dataSizeMb} format={(n) => `${n.toFixed(1)} MB`} />
+                    </td>
+                    <td className="py-2.5 text-right text-slate-400 text-xs">
+                      <Ranged stat={c.evictions} format={count} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -112,8 +142,10 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
         <div className="glass rounded-2xl p-6">
           <h3 className="text-slate-100 font-semibold mb-1">EhCache</h3>
           <p className="text-slate-500 text-xs mb-5">
-            Counters are cumulative since instance start, so these show the latest reading rather than
-            a sum across snapshots. Evictions mean the cache is sized below its working set.
+            Averages across snapshots with the observed range in parentheses. Gets, misses and
+            evictions are cumulative since each instance started, so the average blends backends of
+            differing uptime — a wide range here is usually uptime rather than a change in behaviour,
+            and none of these are fleet totals. Evictions mean the cache is sized below its working set.
           </p>
 
           <div className="overflow-x-auto">
@@ -137,20 +169,33 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                       <div className="space-y-1">
                         <span
                           className={`text-xs font-medium ${
-                            e.hitPercentage < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT ? "text-amber-400" : "text-slate-200"
+                            e.hitPercentage.avg < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
+                              ? "text-amber-400"
+                              : "text-slate-200"
                           }`}
                         >
-                          {e.hitPercentage.toFixed(2)}%
+                          {e.hitPercentage.avg.toFixed(2)}%
+                          {e.hitPercentage.min.toFixed(2) !== e.hitPercentage.max.toFixed(2) && (
+                            <span className="text-slate-600 ml-1 font-normal">
+                              ({e.hitPercentage.min.toFixed(2)}–{e.hitPercentage.max.toFixed(2)})
+                            </span>
+                          )}
                         </span>
-                        <RatioBar value={e.hitPercentage} />
+                        <RatioBar value={e.hitPercentage.avg} />
                       </div>
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">{e.gets.toLocaleString()}</td>
-                    <td className="py-2.5 pr-4 text-right text-slate-400 text-xs">{e.misses.toLocaleString()}</td>
-                    <td className={`py-2.5 pr-4 text-right text-xs ${e.evictions > 0 ? "text-amber-400" : "text-slate-400"}`}>
-                      {e.evictions.toLocaleString()}
+                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                      <Ranged stat={e.gets} format={count} />
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">{mb(e.onHeapBytes)}</td>
+                    <td className="py-2.5 pr-4 text-right text-slate-400 text-xs">
+                      <Ranged stat={e.misses} format={count} />
+                    </td>
+                    <td className={`py-2.5 pr-4 text-right text-xs ${e.evictions.avg > 0 ? "text-amber-400" : "text-slate-400"}`}>
+                      <Ranged stat={e.evictions} format={count} />
+                    </td>
+                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                      {e.onHeapBytes ? <Ranged stat={e.onHeapBytes} format={mb} /> : <span className="text-slate-500">n/a</span>}
+                    </td>
                     <td className="py-2.5 text-right text-slate-500 text-xs">{e.creationExpiry ?? "—"}</td>
                   </tr>
                 ))}

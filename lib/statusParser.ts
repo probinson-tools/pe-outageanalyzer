@@ -3,6 +3,8 @@ import type {
   CacheRollup,
   CacheStat,
   CacheUrlPattern,
+  EhCacheRollup,
+  Stat3,
   EhCacheStat,
   HttpCacheEntry,
   HttpCacheUrlRollup,
@@ -109,6 +111,23 @@ function incr(map: Map<string, number>, key: string, by = 1) {
 
 function topN<T>(items: T[], n: number, score: (t: T) => number): T[] {
   return [...items].sort((a, b) => score(b) - score(a)).slice(0, n);
+}
+
+/**
+ * Mean plus observed range. Uses reduce rather than Math.min(...values) so a large
+ * upload cannot overflow the argument list.
+ */
+function stat3(values: number[]): Stat3 {
+  if (!values.length) return { avg: 0, min: 0, max: 0 };
+  let sum = 0;
+  let min = values[0];
+  let max = values[0];
+  for (const v of values) {
+    sum += v;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { avg: sum / values.length, min, max };
 }
 
 /**
@@ -983,41 +1002,81 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     ([frame, count]) => ({ frame, count })
   );
 
-  // ── Cache rollups. Hit ratios are averaged; entries/size take the latest reading,
-  // since they describe current occupancy rather than a rate. ──
-  const cacheAcc = new Map<string, { ratios: number[]; latest: CacheStat; evictions: number }>();
+  // ── Cache rollups. Every figure is averaged across the snapshots that reported it,
+  // with the observed range carried alongside.
+  //
+  // Reading a single snapshot would mean reporting whichever backend happened to answer
+  // the last poll, which is arbitrary under a load balancer. Averaging is representative
+  // instead, and the min/max is what shows how much the instances actually disagree. ──
+  const cacheAcc = new Map<
+    string,
+    { ratios: number[]; entries: number[]; sizes: number[]; evictions: number[] }
+  >();
   for (const s of all) {
     for (const c of [...s.caches, ...(s.httpPageCache ? [s.httpPageCache] : [])]) {
-      const acc = cacheAcc.get(c.name);
+      let acc = cacheAcc.get(c.name);
       if (!acc) {
-        cacheAcc.set(c.name, {
-          ratios: c.hitRatio === null ? [] : [c.hitRatio],
-          latest: c,
-          evictions: c.lruEvictions,
-        });
-      } else {
-        if (c.hitRatio !== null) acc.ratios.push(c.hitRatio);
-        acc.latest = c; // `all` is time-ordered, so the last write wins
-        acc.evictions = Math.max(acc.evictions, c.lruEvictions);
+        acc = { ratios: [], entries: [], sizes: [], evictions: [] };
+        cacheAcc.set(c.name, acc);
       }
+      if (c.hitRatio !== null) acc.ratios.push(c.hitRatio);
+      acc.entries.push(c.entries);
+      acc.sizes.push(c.dataSizeMb);
+      acc.evictions.push(c.lruEvictions);
     }
   }
   const cacheRollup: CacheRollup[] = [...cacheAcc.entries()].map(([name, acc]) => ({
     name,
-    avgHitRatio: acc.ratios.length ? acc.ratios.reduce((a, b) => a + b, 0) / acc.ratios.length : null,
-    minHitRatio: acc.ratios.length ? Math.min(...acc.ratios) : null,
-    maxHitRatio: acc.ratios.length ? Math.max(...acc.ratios) : null,
-    latestEntries: acc.latest.entries,
-    latestDataSizeMb: acc.latest.dataSizeMb,
-    totalEvictions: acc.evictions,
-    samples: acc.ratios.length,
+    hitRatio: acc.ratios.length ? stat3(acc.ratios) : null,
+    entries: stat3(acc.entries),
+    dataSizeMb: stat3(acc.sizes),
+    evictions: stat3(acc.evictions),
+    samples: acc.entries.length,
   }));
 
-  // EhCache counters are cumulative per instance, so the latest reading is the honest
-  // one — summing across snapshots would multiply-count the same gets.
-  const ehLatest = new Map<string, EhCacheStat>();
-  for (const s of all) for (const e of s.ehCaches) ehLatest.set(e.name, e);
-  const ehCacheRollup = [...ehLatest.values()].sort((a, b) => b.gets - a.gets);
+  // EhCache gets/hits/misses/evictions are cumulative since each instance started, so the
+  // average blends backends of differing uptime. That is why the range travels with it —
+  // a wide spread here is usually uptime rather than a change in behaviour.
+  const ehAcc = new Map<
+    string,
+    {
+      hitPct: number[];
+      gets: number[];
+      misses: number[];
+      evictions: number[];
+      onHeap: number[];
+      expiry: string | null;
+    }
+  >();
+  for (const s of all) {
+    for (const e of s.ehCaches) {
+      let acc = ehAcc.get(e.name);
+      if (!acc) {
+        acc = { hitPct: [], gets: [], misses: [], evictions: [], onHeap: [], expiry: null };
+        ehAcc.set(e.name, acc);
+      }
+      acc.hitPct.push(e.hitPercentage);
+      acc.gets.push(e.gets);
+      acc.misses.push(e.misses);
+      acc.evictions.push(e.evictions);
+      // -1 means on-heap sizing is disabled for that cache; averaging it in would drag
+      // the figure below zero rather than reporting "unavailable".
+      if (e.onHeapBytes >= 0) acc.onHeap.push(e.onHeapBytes);
+      acc.expiry = acc.expiry ?? e.creationExpiry;
+    }
+  }
+  const ehCacheRollup: EhCacheRollup[] = [...ehAcc.entries()]
+    .map(([name, acc]) => ({
+      name,
+      hitPercentage: stat3(acc.hitPct),
+      gets: stat3(acc.gets),
+      misses: stat3(acc.misses),
+      evictions: stat3(acc.evictions),
+      onHeapBytes: acc.onHeap.length ? stat3(acc.onHeap) : null,
+      creationExpiry: acc.expiry,
+      samples: acc.gets.length,
+    }))
+    .sort((a, b) => b.gets.avg - a.gets.avg);
 
   // ── HTTP cache URLs: AccessCount is cumulative per instance, so take the peak. ──
   const urlAcc = new Map<string, { accessCount: number; snapshots: number }>();
@@ -1097,9 +1156,9 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   const lowHitRatioCaches = cacheRollup
     .filter(
       (c) =>
-        c.avgHitRatio !== null &&
-        c.avgHitRatio < LOW_HIT_RATIO_PCT &&
-        c.latestEntries >= LOW_HIT_RATIO_MIN_ENTRIES
+        c.hitRatio !== null &&
+        c.hitRatio.avg < LOW_HIT_RATIO_PCT &&
+        c.entries.avg >= LOW_HIT_RATIO_MIN_ENTRIES
     )
     .map((c) => c.name);
 

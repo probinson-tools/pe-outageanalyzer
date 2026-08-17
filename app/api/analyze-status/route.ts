@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { searchConfluence } from "@/lib/confluence";
-import type { StatusPromptPayload } from "@/lib/types";
+import type { Stat3, StatusPromptPayload } from "@/lib/types";
 
 export const runtime = "edge";
 export const maxDuration = 60;
@@ -11,6 +11,16 @@ function errorResponse(message: string, status = 500) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/**
+ * "12.3 [9.1–15.4]". The range is dropped when the bounds format identically, so values
+ * differing only below the displayed precision do not render as "[100.00–100.00]".
+ */
+function fmtStat(s: Stat3, format: (n: number) => string): string {
+  const lo = format(s.min);
+  const hi = format(s.max);
+  return lo === hi ? format(s.avg) : `${format(s.avg)} [${lo}–${hi}]`;
 }
 
 function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string): string {
@@ -120,14 +130,16 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
   }
 
   lines.push("");
-  lines.push("CACHE HIT RATIOS (averaged across snapshots; entries/size are the latest reading):");
+  lines.push(
+    "CACHE STATS — every figure is the mean across snapshots with the observed range in brackets. These are per-instance readings averaged together, not fleet totals:"
+  );
   for (const c of p.cacheRollup) {
     lines.push(
-      `- ${c.name}: avg ${c.avgHitRatio !== null ? c.avgHitRatio.toFixed(2) + "%" : "n/a"}` +
-        (c.samples > 1 && c.minHitRatio !== null && c.maxHitRatio !== null
-          ? ` (range ${c.minHitRatio.toFixed(2)}–${c.maxHitRatio.toFixed(2)}%)`
-          : "") +
-        `, ${c.latestEntries.toLocaleString()} entries, ${c.latestDataSizeMb} MB, ${c.totalEvictions.toLocaleString()} LRU evictions`
+      `- ${c.name}: hit ratio ${c.hitRatio ? fmtStat(c.hitRatio, (n) => n.toFixed(2) + "%") : "n/a"}, ` +
+        `${fmtStat(c.entries, (n) => Math.round(n).toLocaleString())} entries, ` +
+        `${fmtStat(c.dataSizeMb, (n) => n.toFixed(1))} MB, ` +
+        `${fmtStat(c.evictions, (n) => Math.round(n).toLocaleString())} LRU evictions ` +
+        `(over ${c.samples} snapshot${c.samples === 1 ? "" : "s"})`
     );
   }
   if (f.lowHitRatioCaches.length) {
@@ -136,12 +148,17 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
 
   if (p.ehCacheRollup.length) {
     lines.push("");
-    lines.push("EHCACHE (latest reading; counters are cumulative per instance):");
+    lines.push(
+      "EHCACHE — means across snapshots with the observed range in brackets. Gets, misses and evictions are cumulative since each instance started, so these average backends of differing uptime and are NOT fleet totals; a wide range usually reflects uptime rather than a change in behaviour:"
+    );
+    const num = (n: number) => Math.round(n).toLocaleString();
     for (const e of p.ehCacheRollup) {
       lines.push(
-        `- ${e.name}: ${e.hitPercentage.toFixed(2)}% hit over ${e.gets.toLocaleString()} gets, ` +
-          `${e.misses.toLocaleString()} misses, ${e.evictions.toLocaleString()} evictions, ` +
-          `${(e.onHeapBytes / 1048576).toFixed(1)} MB on heap, TTL ${e.creationExpiry ?? "unknown"}`
+        `- ${e.name}: ${fmtStat(e.hitPercentage, (n) => n.toFixed(2) + "%")} hit over ` +
+          `${fmtStat(e.gets, num)} gets, ${fmtStat(e.misses, num)} misses, ` +
+          `${fmtStat(e.evictions, num)} evictions, ` +
+          `${e.onHeapBytes ? fmtStat(e.onHeapBytes, (n) => (n / 1048576).toFixed(1)) + " MB" : "n/a"} on heap, ` +
+          `TTL ${e.creationExpiry ?? "unknown"}`
       );
     }
   }

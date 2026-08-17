@@ -364,14 +364,41 @@ export interface ValueGroup {
   instanceIds: string[];
 }
 
+/** Average across the snapshots that reported the value, with the observed range. */
+export interface Stat3 {
+  avg: number;
+  min: number;
+  max: number;
+}
+
 export interface CacheRollup {
   name: string;
-  avgHitRatio: number | null;
-  minHitRatio: number | null;
-  maxHitRatio: number | null;
-  latestEntries: number;
-  latestDataSizeMb: number;
-  totalEvictions: number;
+  hitRatio: Stat3 | null;
+  entries: Stat3;
+  dataSizeMb: Stat3;
+  evictions: Stat3;
+  /** Snapshots that reported this cache. */
+  samples: number;
+}
+
+/**
+ * EhCache figures averaged across snapshots, with the range.
+ *
+ * Note what the average is over: gets, hits, misses and evictions are cumulative since
+ * each instance started, and the polled URL is load balanced, so consecutive snapshots
+ * come from backends of differing uptime. The average therefore blends instances at
+ * different points in their life — the min/max range is what makes that visible, and a
+ * wide range means the spread is uptime, not a change in behaviour.
+ */
+export interface EhCacheRollup {
+  name: string;
+  hitPercentage: Stat3;
+  gets: Stat3;
+  misses: Stat3;
+  evictions: Stat3;
+  /** Null when every snapshot reported -1, i.e. on-heap sizing is off for this cache. */
+  onHeapBytes: Stat3 | null;
+  creationExpiry: string | null;
   samples: number;
 }
 
@@ -459,7 +486,7 @@ export interface StatusAnalysis {
   threadStates: { time: number; instanceId: string; byState: Record<string, number> }[];
 
   cacheRollup: CacheRollup[];
-  ehCacheRollup: EhCacheStat[];
+  ehCacheRollup: EhCacheRollup[];
   httpCacheUrls: HttpCacheUrlRollup[];
   cacheKeyParams: CacheKeyParam[];
   cacheUrlPatterns: CacheUrlPattern[];
@@ -556,7 +583,7 @@ export interface StatusPromptPayload {
   }[];
   hotFrames: { frame: string; count: number }[];
   cacheRollup: CacheRollup[];
-  ehCacheRollup: EhCacheStat[];
+  ehCacheRollup: EhCacheRollup[];
   httpCache: StatusAnalysis["httpCacheTotals"] & { topUrls: HttpCacheUrlRollup[] };
   cacheKeyParams: CacheKeyParam[];
   cacheUrlPatterns: CacheUrlPattern[];
