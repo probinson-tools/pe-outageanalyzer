@@ -382,22 +382,44 @@ export interface CacheRollup {
 }
 
 /**
- * EhCache figures averaged across snapshots, with the range.
+ * A fleet-wide figure: each instance's readings are averaged, then those averages are
+ * summed. Averaging first keeps one unluckily-timed poll from skewing an instance's
+ * contribution; summing after makes the result describe the whole pool rather than
+ * whichever backend happened to answer.
+ */
+export interface FleetStat {
+  /** Sum across instances of each instance's mean reading. */
+  total: number;
+  /** Lowest and highest per-instance mean — how evenly the work is spread. */
+  min: number;
+  max: number;
+  instances: number;
+}
+
+/** A rate, which cannot be summed: pooled across the fleet, with the per-instance spread. */
+export interface RateStat {
+  /** Weighted by volume across the fleet, not a mean of the per-instance percentages. */
+  pooled: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * EhCache figures rolled up across the whole server pool.
  *
- * Note what the average is over: gets, hits, misses and evictions are cumulative since
- * each instance started, and the polled URL is load balanced, so consecutive snapshots
- * come from backends of differing uptime. The average therefore blends instances at
- * different points in their life — the min/max range is what makes that visible, and a
- * wide range means the spread is uptime, not a change in behaviour.
+ * Gets, hits, misses and evictions are cumulative since each instance started, so a
+ * single snapshot only ever describes one backend. These are fleet totals instead. The
+ * hit rate is derived from the same totals rather than averaged, so the row stays
+ * internally consistent — misses over gets reproduces the displayed rate.
  */
 export interface EhCacheRollup {
   name: string;
-  hitPercentage: Stat3;
-  gets: Stat3;
-  misses: Stat3;
-  evictions: Stat3;
-  /** Null when every snapshot reported -1, i.e. on-heap sizing is off for this cache. */
-  onHeapBytes: Stat3 | null;
+  hitPercentage: RateStat;
+  gets: FleetStat;
+  misses: FleetStat;
+  evictions: FleetStat;
+  /** Null when every reading was -1, i.e. on-heap sizing is off for this cache. */
+  onHeapBytes: FleetStat | null;
   creationExpiry: string | null;
   samples: number;
 }

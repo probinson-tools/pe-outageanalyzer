@@ -4,6 +4,7 @@ import type {
   CacheStat,
   CacheUrlPattern,
   EhCacheRollup,
+  FleetStat,
   Stat3,
   EhCacheStat,
   HttpCacheEntry,
@@ -111,6 +112,30 @@ function incr(map: Map<string, number>, key: string, by = 1) {
 
 function topN<T>(items: T[], n: number, score: (t: T) => number): T[] {
   return [...items].sort((a, b) => score(b) - score(a)).slice(0, n);
+}
+
+function mean(values: number[]): number {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+/**
+ * Average each instance's readings, then sum those averages into a fleet figure.
+ *
+ * Instances contributing no readings at all are left out of the count and the range, so
+ * a cache that only some backends report does not look artificially uneven.
+ */
+function fleetStat(perInstance: number[][]): FleetStat {
+  const means = perInstance.filter((v) => v.length).map(mean);
+  if (!means.length) return { total: 0, min: 0, max: 0, instances: 0 };
+  let total = 0;
+  let min = means[0];
+  let max = means[0];
+  for (const m of means) {
+    total += m;
+    if (m < min) min = m;
+    if (m > max) max = m;
+  }
+  return { total, min, max, instances: means.length };
 }
 
 /**
@@ -1034,49 +1059,76 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     samples: acc.entries.length,
   }));
 
-  // EhCache gets/hits/misses/evictions are cumulative since each instance started, so the
-  // average blends backends of differing uptime. That is why the range travels with it —
-  // a wide spread here is usually uptime rather than a change in behaviour.
-  const ehAcc = new Map<
-    string,
-    {
-      hitPct: number[];
-      gets: number[];
-      misses: number[];
-      evictions: number[];
-      onHeap: number[];
-      expiry: string | null;
-    }
-  >();
+  // EhCache counters are cumulative since each instance started, so no single snapshot
+  // describes the pool. Each instance's readings are averaged first — so one unluckily
+  // timed poll cannot skew its contribution — and those means are then summed into a
+  // fleet total.
+  interface EhReadings {
+    gets: number[];
+    hits: number[];
+    misses: number[];
+    evictions: number[];
+    onHeap: number[];
+  }
+  const ehByName = new Map<string, { byInstance: Map<string, EhReadings>; expiry: string | null; samples: number }>();
+
   for (const s of all) {
     for (const e of s.ehCaches) {
-      let acc = ehAcc.get(e.name);
-      if (!acc) {
-        acc = { hitPct: [], gets: [], misses: [], evictions: [], onHeap: [], expiry: null };
-        ehAcc.set(e.name, acc);
+      let entry = ehByName.get(e.name);
+      if (!entry) {
+        entry = { byInstance: new Map(), expiry: null, samples: 0 };
+        ehByName.set(e.name, entry);
       }
-      acc.hitPct.push(e.hitPercentage);
-      acc.gets.push(e.gets);
-      acc.misses.push(e.misses);
-      acc.evictions.push(e.evictions);
-      // -1 means on-heap sizing is disabled for that cache; averaging it in would drag
-      // the figure below zero rather than reporting "unavailable".
-      if (e.onHeapBytes >= 0) acc.onHeap.push(e.onHeapBytes);
-      acc.expiry = acc.expiry ?? e.creationExpiry;
+      entry.samples++;
+      entry.expiry = entry.expiry ?? e.creationExpiry;
+
+      let r = entry.byInstance.get(s.instanceId);
+      if (!r) {
+        r = { gets: [], hits: [], misses: [], evictions: [], onHeap: [] };
+        entry.byInstance.set(s.instanceId, r);
+      }
+      r.gets.push(e.gets);
+      r.hits.push(e.hits);
+      r.misses.push(e.misses);
+      r.evictions.push(e.evictions);
+      // -1 means on-heap sizing is disabled for that cache; it is not a size of zero.
+      if (e.onHeapBytes >= 0) r.onHeap.push(e.onHeapBytes);
     }
   }
-  const ehCacheRollup: EhCacheRollup[] = [...ehAcc.entries()]
-    .map(([name, acc]) => ({
-      name,
-      hitPercentage: stat3(acc.hitPct),
-      gets: stat3(acc.gets),
-      misses: stat3(acc.misses),
-      evictions: stat3(acc.evictions),
-      onHeapBytes: acc.onHeap.length ? stat3(acc.onHeap) : null,
-      creationExpiry: acc.expiry,
-      samples: acc.gets.length,
-    }))
-    .sort((a, b) => b.gets.avg - a.gets.avg);
+
+  const ehCacheRollup: EhCacheRollup[] = [...ehByName.entries()]
+    .map(([name, entry]) => {
+      const instances = [...entry.byInstance.values()];
+      const gets = fleetStat(instances.map((r) => r.gets));
+      const misses = fleetStat(instances.map((r) => r.misses));
+
+      // Per-instance hit rates, derived from that instance's own means so they stay
+      // consistent with the totals rather than re-averaging the reported percentages.
+      const rates = instances
+        .map((r) => ({ g: mean(r.gets), h: mean(r.hits) }))
+        .filter((x) => x.g > 0)
+        .map((x) => (x.h / x.g) * 100);
+      const totalHits = fleetStat(instances.map((r) => r.hits)).total;
+
+      return {
+        name,
+        hitPercentage: {
+          // Volume-weighted, so a low-traffic instance cannot drag the headline figure.
+          pooled: gets.total > 0 ? (totalHits / gets.total) * 100 : 0,
+          min: rates.length ? Math.min(...rates) : 0,
+          max: rates.length ? Math.max(...rates) : 0,
+        },
+        gets,
+        misses,
+        evictions: fleetStat(instances.map((r) => r.evictions)),
+        onHeapBytes: instances.some((r) => r.onHeap.length)
+          ? fleetStat(instances.map((r) => r.onHeap))
+          : null,
+        creationExpiry: entry.expiry,
+        samples: entry.samples,
+      };
+    })
+    .sort((a, b) => b.gets.total - a.gets.total);
 
   // ── HTTP cache URLs: AccessCount is cumulative per instance, so take the peak. ──
   const urlAcc = new Map<string, { accessCount: number; snapshots: number }>();

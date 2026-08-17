@@ -1,7 +1,7 @@
 "use client";
 
 import { STATUS_THRESHOLDS } from "@/lib/statusParser";
-import type { CacheRollup, EhCacheRollup, StaticCacheStat, Stat3 } from "@/lib/types";
+import type { CacheRollup, EhCacheRollup, FleetStat, StaticCacheStat, Stat3 } from "@/lib/types";
 
 interface Props {
   caches: CacheRollup[];
@@ -38,6 +38,26 @@ function Ranged({ stat, format }: { stat: Stat3 | null; format: (n: number) => s
       {lo !== hi && (
         <span className="text-slate-600 ml-1">
           ({lo}–{hi})
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A fleet total with the per-instance contribution range beneath it. The range is what
+ * shows whether the work is spread evenly across the pool or concentrated on one backend.
+ */
+function Fleet({ stat, format }: { stat: FleetStat | null; format: (n: number) => string }) {
+  if (!stat || !stat.instances) return <span className="text-slate-500">n/a</span>;
+  const lo = format(stat.min);
+  const hi = format(stat.max);
+  return (
+    <span className="whitespace-nowrap">
+      {format(stat.total)}
+      {stat.instances > 1 && lo !== hi && (
+        <span className="text-slate-600 ml-1">
+          ({lo}–{hi} ea)
         </span>
       )}
     </span>
@@ -142,10 +162,13 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
         <div className="glass rounded-2xl p-6">
           <h3 className="text-slate-100 font-semibold mb-1">EhCache</h3>
           <p className="text-slate-500 text-xs mb-5">
-            Averages across snapshots with the observed range in parentheses. Gets, misses and
-            evictions are cumulative since each instance started, so the average blends backends of
-            differing uptime — a wide range here is usually uptime rather than a change in behaviour,
-            and none of these are fleet totals. Evictions mean the cache is sized below its working set.
+            Counters are cumulative since each instance started, so no single snapshot describes the
+            pool. Gets, misses, evictions and on-heap size are <span className="text-slate-400">fleet
+            totals</span>: each instance&rsquo;s readings are averaged, then those averages summed.
+            The bracketed figures are the per-instance range, so a wide spread means the work is
+            landing unevenly across the backends. The hit rate is volume-weighted and derived from
+            the same totals, not an average of the per-instance percentages. Evictions mean the cache
+            is sized below its working set.
           </p>
 
           <div className="overflow-x-auto">
@@ -169,32 +192,32 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                       <div className="space-y-1">
                         <span
                           className={`text-xs font-medium ${
-                            e.hitPercentage.avg < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
+                            e.hitPercentage.pooled < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
                               ? "text-amber-400"
                               : "text-slate-200"
                           }`}
                         >
-                          {e.hitPercentage.avg.toFixed(2)}%
+                          {e.hitPercentage.pooled.toFixed(2)}%
                           {e.hitPercentage.min.toFixed(2) !== e.hitPercentage.max.toFixed(2) && (
                             <span className="text-slate-600 ml-1 font-normal">
                               ({e.hitPercentage.min.toFixed(2)}–{e.hitPercentage.max.toFixed(2)})
                             </span>
                           )}
                         </span>
-                        <RatioBar value={e.hitPercentage.avg} />
+                        <RatioBar value={e.hitPercentage.pooled} />
                       </div>
                     </td>
                     <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
-                      <Ranged stat={e.gets} format={count} />
+                      <Fleet stat={e.gets} format={count} />
                     </td>
                     <td className="py-2.5 pr-4 text-right text-slate-400 text-xs">
-                      <Ranged stat={e.misses} format={count} />
+                      <Fleet stat={e.misses} format={count} />
                     </td>
-                    <td className={`py-2.5 pr-4 text-right text-xs ${e.evictions.avg > 0 ? "text-amber-400" : "text-slate-400"}`}>
-                      <Ranged stat={e.evictions} format={count} />
+                    <td className={`py-2.5 pr-4 text-right text-xs ${e.evictions.total > 0 ? "text-amber-400" : "text-slate-400"}`}>
+                      <Fleet stat={e.evictions} format={count} />
                     </td>
                     <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
-                      {e.onHeapBytes ? <Ranged stat={e.onHeapBytes} format={mb} /> : <span className="text-slate-500">n/a</span>}
+                      <Fleet stat={e.onHeapBytes} format={mb} />
                     </td>
                     <td className="py-2.5 text-right text-slate-500 text-xs">{e.creationExpiry ?? "—"}</td>
                   </tr>

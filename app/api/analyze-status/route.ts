@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { searchConfluence } from "@/lib/confluence";
-import type { Stat3, StatusPromptPayload } from "@/lib/types";
+import type { FleetStat, Stat3, StatusPromptPayload } from "@/lib/types";
 
 export const runtime = "edge";
 export const maxDuration = 60;
@@ -21,6 +21,14 @@ function fmtStat(s: Stat3, format: (n: number) => string): string {
   const lo = format(s.min);
   const hi = format(s.max);
   return lo === hi ? format(s.avg) : `${format(s.avg)} [${lo}–${hi}]`;
+}
+
+/** "127,000,000 [12.4M–18.9M ea]" — a fleet total with its per-instance spread. */
+function fmtFleet(s: FleetStat, format: (n: number) => string): string {
+  const lo = format(s.min);
+  const hi = format(s.max);
+  const total = format(s.total);
+  return s.instances > 1 && lo !== hi ? `${total} [${lo}–${hi} ea]` : total;
 }
 
 function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string): string {
@@ -149,15 +157,19 @@ function summarizeStatusForPrompt(p: StatusPromptPayload, incidentTime: string):
   if (p.ehCacheRollup.length) {
     lines.push("");
     lines.push(
-      "EHCACHE — means across snapshots with the observed range in brackets. Gets, misses and evictions are cumulative since each instance started, so these average backends of differing uptime and are NOT fleet totals; a wide range usually reflects uptime rather than a change in behaviour:"
+      "EHCACHE — gets, misses, evictions and on-heap size are FLEET TOTALS across the whole server pool: each instance's readings were averaged, then those averages summed. Bracketed figures are the per-instance range, so a wide spread means the work lands unevenly across backends. The hit rate is volume-weighted and derived from the same totals, not an average of per-instance percentages:"
     );
     const num = (n: number) => Math.round(n).toLocaleString();
     for (const e of p.ehCacheRollup) {
+      const rate =
+        e.hitPercentage.min.toFixed(2) === e.hitPercentage.max.toFixed(2)
+          ? `${e.hitPercentage.pooled.toFixed(2)}%`
+          : `${e.hitPercentage.pooled.toFixed(2)}% [${e.hitPercentage.min.toFixed(2)}–${e.hitPercentage.max.toFixed(2)}% per instance]`;
       lines.push(
-        `- ${e.name}: ${fmtStat(e.hitPercentage, (n) => n.toFixed(2) + "%")} hit over ` +
-          `${fmtStat(e.gets, num)} gets, ${fmtStat(e.misses, num)} misses, ` +
-          `${fmtStat(e.evictions, num)} evictions, ` +
-          `${e.onHeapBytes ? fmtStat(e.onHeapBytes, (n) => (n / 1048576).toFixed(1)) + " MB" : "n/a"} on heap, ` +
+        `- ${e.name}: ${rate} hit over ${fmtFleet(e.gets, num)} gets, ` +
+          `${fmtFleet(e.misses, num)} misses, ${fmtFleet(e.evictions, num)} evictions, ` +
+          `${e.onHeapBytes ? fmtFleet(e.onHeapBytes, (n) => (n / 1048576).toFixed(1) + " MB") : "n/a"} on heap` +
+          `${e.gets.instances ? ` across ${e.gets.instances} instance${e.gets.instances === 1 ? "" : "s"}` : ""}, ` +
           `TTL ${e.creationExpiry ?? "unknown"}`
       );
     }
