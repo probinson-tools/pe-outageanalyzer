@@ -47,20 +47,24 @@ function Ranged({ stat, format }: { stat: Stat3 | null; format: (n: number) => s
 /**
  * A fleet total with the per-instance contribution range beneath it. The range is what
  * shows whether the work is spread evenly across the pool or concentrated on one backend.
+ *
+ * Stacked rather than inline because these totals run to nine digits and the range adds
+ * another two of them — side by side they force the table into horizontal scroll and
+ * squeeze the narrower columns until their headers wrap.
  */
 function Fleet({ stat, format }: { stat: FleetStat | null; format: (n: number) => string }) {
   if (!stat || !stat.instances) return <span className="text-slate-500">n/a</span>;
   const lo = format(stat.min);
   const hi = format(stat.max);
   return (
-    <span className="whitespace-nowrap">
-      {format(stat.total)}
+    <div className="whitespace-nowrap">
+      <div>{format(stat.total)}</div>
       {stat.instances > 1 && lo !== hi && (
-        <span className="text-slate-600 ml-1">
-          ({lo}–{hi} ea)
-        </span>
+        <div className="text-slate-600 text-[11px]">
+          {lo}–{hi} ea
+        </div>
       )}
-    </span>
+    </div>
   );
 }
 
@@ -98,12 +102,12 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-white/8">
-                  <th className="pb-2 pr-4 font-semibold">Cache</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Cache</th>
                   <th className="pb-2 pr-4 font-semibold w-40">Hit Ratio</th>
-                  {multiSnapshot && <th className="pb-2 pr-4 font-semibold text-right">Min / Max</th>}
-                  <th className="pb-2 pr-4 font-semibold text-right">Entries</th>
-                  <th className="pb-2 pr-4 font-semibold text-right">Size</th>
-                  <th className="pb-2 font-semibold text-right">LRU Evictions</th>
+                  {multiSnapshot && <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Min / Max</th>}
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Entries</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Size</th>
+                  <th className="pb-2 font-semibold whitespace-nowrap">LRU Evictions</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,17 +129,17 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                       </div>
                     </td>
                     {multiSnapshot && (
-                      <td className="py-2.5 pr-4 text-right text-slate-500 text-xs whitespace-nowrap">
+                      <td className="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">
                         {pct(c.hitRatio?.min ?? null)} / {pct(c.hitRatio?.max ?? null)}
                       </td>
                     )}
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                    <td className="py-2.5 pr-4 text-slate-300 text-xs">
                       <Ranged stat={c.entries} format={count} />
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                    <td className="py-2.5 pr-4 text-slate-300 text-xs">
                       <Ranged stat={c.dataSizeMb} format={(n) => `${n.toFixed(1)} MB`} />
                     </td>
-                    <td className="py-2.5 text-right text-slate-400 text-xs">
+                    <td className="py-2.5 text-slate-400 text-xs">
                       <Ranged stat={c.evictions} format={count} />
                     </td>
                   </tr>
@@ -165,8 +169,8 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
             Counters are cumulative since each instance started, so no single snapshot describes the
             pool. Gets, misses, evictions and on-heap size are <span className="text-slate-400">fleet
             totals</span>: each instance&rsquo;s readings are averaged, then those averages summed.
-            The bracketed figures are the per-instance range, so a wide spread means the work is
-            landing unevenly across the backends. The hit rate is volume-weighted and derived from
+            The smaller figure beneath each total is the per-instance range, so a wide spread means
+            the work is landing unevenly across the backends. The hit rate is volume-weighted and derived from
             the same totals, not an average of the per-instance percentages. Evictions mean the cache
             is sized below its working set.
           </p>
@@ -175,13 +179,13 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-white/8">
-                  <th className="pb-2 pr-4 font-semibold">Cache</th>
-                  <th className="pb-2 pr-4 font-semibold w-40">Hit Rate</th>
-                  <th className="pb-2 pr-4 font-semibold text-right">Gets</th>
-                  <th className="pb-2 pr-4 font-semibold text-right">Misses</th>
-                  <th className="pb-2 pr-4 font-semibold text-right">Evictions</th>
-                  <th className="pb-2 pr-4 font-semibold text-right">On Heap</th>
-                  <th className="pb-2 font-semibold text-right">TTL</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Cache</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Hit Rate</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Gets</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Misses</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Evictions</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">On Heap</th>
+                  <th className="pb-2 font-semibold whitespace-nowrap">TTL</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,7 +193,7 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                   <tr key={e.name} className="border-b border-white/5 last:border-0">
                     <td className="py-2.5 pr-4 font-mono text-xs text-slate-300">{e.name}</td>
                     <td className="py-2.5 pr-4">
-                      <div className="space-y-1">
+                      <div className="space-y-1 whitespace-nowrap">
                         <span
                           className={`text-xs font-medium ${
                             e.hitPercentage.pooled < STATUS_THRESHOLDS.LOW_HIT_RATIO_PCT
@@ -207,19 +211,19 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                         <RatioBar value={e.hitPercentage.pooled} />
                       </div>
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                    <td className="py-2.5 pr-4 text-slate-300 text-xs">
                       <Fleet stat={e.gets} format={count} />
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-400 text-xs">
+                    <td className="py-2.5 pr-4 text-slate-400 text-xs">
                       <Fleet stat={e.misses} format={count} />
                     </td>
-                    <td className={`py-2.5 pr-4 text-right text-xs ${e.evictions.total > 0 ? "text-amber-400" : "text-slate-400"}`}>
+                    <td className={`py-2.5 pr-4 text-xs ${e.evictions.total > 0 ? "text-amber-400" : "text-slate-400"}`}>
                       <Fleet stat={e.evictions} format={count} />
                     </td>
-                    <td className="py-2.5 pr-4 text-right text-slate-300 text-xs">
+                    <td className="py-2.5 pr-4 text-slate-300 text-xs">
                       <Fleet stat={e.onHeapBytes} format={mb} />
                     </td>
-                    <td className="py-2.5 text-right text-slate-500 text-xs">{e.creationExpiry ?? "—"}</td>
+                    <td className="py-2.5 text-slate-500 text-xs">{e.creationExpiry ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
