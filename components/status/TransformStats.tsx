@@ -16,8 +16,10 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
   if (!transforms.length && !neverMatchedIds.length) return null;
 
   const slowest = transforms.slice(0, TOP_ROWS);
+  const slowestAvg = [...transforms].sort((a, b) => b.avgMs - a.avgMs).slice(0, TOP_ROWS);
   const hottest = [...transforms].sort((a, b) => b.matches - a.matches).slice(0, TOP_ROWS);
   const maxMax = slowest[0]?.maxMs || 1;
+  const maxAvg = slowestAvg[0]?.avgMs || 1;
   const maxMatches = hottest[0]?.matches || 1;
 
   const Row = ({
@@ -55,10 +57,11 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
       <h3 className="text-slate-100 font-semibold mb-1">Transformation Rules</h3>
       <p className="text-slate-500 text-xs mb-5">
         Peak values observed per transform Id across all snapshots. A rule that matches often but
-        rarely executes is cheap; one with a high max is a latency tail on the pages it touches.
+        rarely executes is cheap; one with a high max is a latency tail on the pages it touches, while
+        a high average means it is slow on every page it touches, not just an occasional outlier.
       </p>
 
-      <div className="grid md:grid-cols-2 gap-8">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-3">
             Slowest by max duration
@@ -66,6 +69,17 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
           <div className="space-y-2.5">
             {slowest.map((t) => (
               <Row key={t.id} t={t} value={t.maxMs} max={maxMax} unit="ms" />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-3">
+            Slowest by average duration
+          </p>
+          <div className="space-y-2.5">
+            {slowestAvg.map((t) => (
+              <Row key={t.id} t={t} value={t.avgMs} max={maxAvg} unit="ms" />
             ))}
           </div>
         </div>
