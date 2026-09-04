@@ -13,14 +13,23 @@ const TOP_ROWS = 15;
 
 export default function TransformStats({ transforms, neverMatchedIds }: Props) {
   const [showDead, setShowDead] = useState(false);
+  const [showNeverExecuted, setShowNeverExecuted] = useState(false);
   if (!transforms.length && !neverMatchedIds.length) return null;
 
   const slowest = transforms.slice(0, TOP_ROWS);
   const slowestAvg = [...transforms].sort((a, b) => b.avgMs - a.avgMs).slice(0, TOP_ROWS);
   const hottest = [...transforms].sort((a, b) => b.matches - a.matches).slice(0, TOP_ROWS);
+  const mostExecuted = [...transforms].sort((a, b) => b.executions - a.executions).slice(0, TOP_ROWS);
   const maxMax = slowest[0]?.maxMs || 1;
   const maxAvg = slowestAvg[0]?.avgMs || 1;
   const maxMatches = hottest[0]?.matches || 1;
+  const maxExecutions = mostExecuted[0]?.executions || 1;
+  // Never matched at all -> trivially never executed either; union with rules that
+  // did match but still ran zero executions.
+  const neverExecutedIds = [
+    ...neverMatchedIds,
+    ...transforms.filter((t) => t.executions === 0).map((t) => t.id),
+  ];
 
   const Row = ({
     t,
@@ -61,7 +70,7 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
         a high average means it is slow on every page it touches, not just an occasional outlier.
       </p>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-8">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-3">
             Slowest by max duration
@@ -94,6 +103,17 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
             ))}
           </div>
         </div>
+
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-3">
+            Most executed
+          </p>
+          <div className="space-y-2.5">
+            {mostExecuted.map((t) => (
+              <Row key={t.id} t={t} value={t.executions} max={maxExecutions} unit="executions" />
+            ))}
+          </div>
+        </div>
       </div>
 
       {neverMatchedIds.length > 0 && (
@@ -118,6 +138,34 @@ export default function TransformStats({ transforms, neverMatchedIds }: Props) {
           {showDead && (
             <p className="mt-3 max-h-40 overflow-auto scrollbar-thin rounded-lg bg-[#0F1117] border border-white/8 p-3 font-mono text-[11px] leading-relaxed text-slate-500">
               {neverMatchedIds.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {neverExecutedIds.length > 0 && (
+        <div className="mt-6 pt-5 border-t border-white/8">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-slate-300 text-sm font-medium">
+                {neverExecutedIds.length.toLocaleString()} transforms never executed
+              </p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                Zero executions across every snapshot — either the condition never matched, or it
+                matched but the rule's action never ran.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNeverExecuted(!showNeverExecuted)}
+              className="text-xs text-blue-400 hover:text-blue-300 shrink-0"
+            >
+              {showNeverExecuted ? "Hide" : "Show ids"}
+            </button>
+          </div>
+          {showNeverExecuted && (
+            <p className="mt-3 max-h-40 overflow-auto scrollbar-thin rounded-lg bg-[#0F1117] border border-white/8 p-3 font-mono text-[11px] leading-relaxed text-slate-500">
+              {neverExecutedIds.join(", ")}
             </p>
           )}
         </div>
