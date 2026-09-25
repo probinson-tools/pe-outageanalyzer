@@ -26,8 +26,12 @@ const ANALYZED = [
   "Transformation timings &amp; dead transform rules",
 ];
 
+type Mode = "file" | "paste";
+
 export default function StatusUploadPanel({ onAnalyze, loading }: Props) {
+  const [mode, setMode] = useState<Mode>("file");
   const [file, setFile] = useState<File | null>(null);
+  const [pastedText, setPastedText] = useState("");
   const [incidentTime, setIncidentTime] = useState("");
   const [dragging, setDragging] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -41,6 +45,11 @@ export default function StatusUploadPanel({ onAnalyze, loading }: Props) {
     }
     setExtractError(null);
     setFile(f);
+  };
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setExtractError(null);
   };
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -85,59 +94,118 @@ export default function StatusUploadPanel({ onAnalyze, loading }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (mode === "file") {
+      if (!file) return;
+      setExtracting(true);
+      setExtractError(null);
+      try {
+        const analysis = await buildAnalysis(file);
+        onAnalyze(analysis, incidentTime, file.name);
+      } catch (err) {
+        setExtractError("Failed to read file: " + (err instanceof Error ? err.message : "Unknown error"));
+      } finally {
+        setExtracting(false);
+      }
+      return;
+    }
+
+    // Pasted text is always exactly one dump — there's no ZIP-of-many equivalent for a
+    // paste, so this takes the same single-snapshot path as a non-zip file upload.
+    if (!pastedText.trim()) return;
     setExtracting(true);
     setExtractError(null);
     try {
-      const analysis = await buildAnalysis(file);
-      onAnalyze(analysis, incidentTime, file.name);
+      const analysis = mergeSnapshots([parseStatusDump(pastedText, "pasted-dump.html")]);
+      onAnalyze(analysis, incidentTime, "pasted-dump.html");
     } catch (err) {
-      setExtractError("Failed to read file: " + (err instanceof Error ? err.message : "Unknown error"));
+      setExtractError("Failed to parse pasted text: " + (err instanceof Error ? err.message : "Unknown error"));
     } finally {
       setExtracting(false);
     }
   };
 
   const busy = loading || extracting;
+  const canSubmit = mode === "file" ? !!file : pastedText.trim().length > 0;
 
   return (
     <form onSubmit={handleSubmit} className="glass rounded-2xl p-6 space-y-6">
       <div className="grid md:grid-cols-2 gap-6">
-        {/* File drop zone */}
+        {/* File upload / paste */}
         <div>
-          <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-            Status Dump (.zip, .html)
-          </label>
-          <div
-            onClick={() => !busy && inputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            className={`
-              relative rounded-xl border-2 border-dashed h-36 flex flex-col items-center justify-center cursor-pointer transition-all
-              ${dragging ? "border-blue-400 bg-blue-500/10" : file ? "border-green-400/50 bg-green-500/5" : "border-white/15 hover:border-white/30 hover:bg-white/3"}
-              ${busy ? "pointer-events-none opacity-50" : ""}
-            `}
-          >
-            <input ref={inputRef} type="file" accept=".zip,.html,.htm" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-            {file ? (
-              <>
-                <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-green-400 text-sm font-medium">{file.name}</p>
-                <p className="text-slate-600 text-xs mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-              </>
-            ) : (
-              <>
-                <svg className="w-8 h-8 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-slate-500 text-sm">Drop a file here or <span className="text-blue-400">browse</span></p>
-                <p className="text-slate-600 text-xs mt-1">One dump, or a .zip of many to merge</p>
-              </>
-            )}
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {mode === "file" ? "Status Dump (.zip, .html)" : "Paste Status Dump"}
+            </label>
+            <div className="flex rounded-lg border border-white/10 overflow-hidden shrink-0">
+              {(
+                [
+                  ["file", "Upload"],
+                  ["paste", "Paste"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => !busy && switchMode(value)}
+                  disabled={busy}
+                  className={`px-3 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${
+                    mode === value ? "bg-blue-500/15 text-blue-400" : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {mode === "file" ? (
+            <div
+              onClick={() => !busy && inputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              className={`
+                relative rounded-xl border-2 border-dashed h-36 flex flex-col items-center justify-center cursor-pointer transition-all
+                ${dragging ? "border-blue-400 bg-blue-500/10" : file ? "border-green-400/50 bg-green-500/5" : "border-white/15 hover:border-white/30 hover:bg-white/3"}
+                ${busy ? "pointer-events-none opacity-50" : ""}
+              `}
+            >
+              <input ref={inputRef} type="file" accept=".zip,.html,.htm" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+              {file ? (
+                <>
+                  <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-green-400 text-sm font-medium">{file.name}</p>
+                  <p className="text-slate-600 text-xs mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </>
+              ) : (
+                <>
+                  <svg className="w-8 h-8 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <p className="text-slate-500 text-sm">Drop a file here or <span className="text-blue-400">browse</span></p>
+                  <p className="text-slate-600 text-xs mt-1">One dump, or a .zip of many to merge</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <textarea
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              disabled={busy}
+              placeholder="Paste a TransMotion status dump (HTML) here…"
+              spellCheck={false}
+              className="w-full h-36 resize-none rounded-xl border-2 border-white/15 bg-[#0F1117] px-4 py-3 text-slate-200 text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-blue-400/50 transition-all disabled:opacity-50"
+            />
+          )}
+          {mode === "paste" && (
+            <p className="mt-2 text-slate-600 text-xs">
+              {pastedText.length > 0
+                ? `${pastedText.split("\n").length.toLocaleString()} lines · ${(pastedText.length / 1024).toFixed(1)} KB`
+                : "One dump only — paste can’t merge multiple snapshots the way a ZIP upload can."}
+            </p>
+          )}
           {extractError && <p className="mt-2 text-red-400 text-xs">{extractError}</p>}
         </div>
 
@@ -169,7 +237,7 @@ export default function StatusUploadPanel({ onAnalyze, loading }: Props) {
 
       <button
         type="submit"
-        disabled={!file || busy}
+        disabled={!canSubmit || busy}
         className="w-full py-3.5 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {busy ? (
