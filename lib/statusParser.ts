@@ -5,6 +5,7 @@ import type {
   CacheUrlPattern,
   EhCacheRollup,
   FleetStat,
+  HotStack,
   Stat3,
   EhCacheStat,
   HttpCacheEntry,
@@ -63,6 +64,13 @@ const MAX_URL_PATTERNS = 60;
 const MAX_PENDING_REQUESTS = 60;
 const MAX_TRANSFORMS = 60;
 const MAX_HOT_FRAMES = 15;
+/**
+ * How many lines from the top of each in-flight stack make up its signature. The top of the
+ * stack is what the thread is executing right now; the whole stack would be too unique to
+ * group, since the dispatch frames beneath vary with the request path.
+ */
+const STACK_SIGNATURE_DEPTH = 10;
+const MAX_HOT_STACKS = 15;
 
 // ── Section markers ──────────────────────────────────────────────────────────
 // The dump is a flat stream of <b>Label:</b>value<br> with no nesting, so sections
@@ -940,11 +948,23 @@ function computeUrlPatterns(urls: HttpCacheUrlRollup[]): {
   };
 }
 
+/** Strip the module/classloader prefix so the same frame compares equal across JVMs. */
+function normalizeFrame(frame: string): string {
+  return frame.replace(/^(?:app\/\/|java\.base@[\d.]+\/)/, "");
+}
+
 /** Application frames only — the Tomcat/JDK dispatch frames are the same on every stack. */
 function appFrames(stack: string[]): string[] {
-  return stack
-    .filter((f) => f.includes("com.motionpoint"))
-    .map((f) => f.replace(/^(?:app\/\/|java\.base@[\d.]+\/)/, ""));
+  return stack.filter((f) => f.includes("com.motionpoint")).map(normalizeFrame);
+}
+
+/**
+ * The poller's own request for the status page. It is in-flight in every dump because it
+ * is the request producing the dump, so it would rank near the top of any frequency list
+ * purely as an artifact of how the data is collected.
+ */
+function isSelfStatusRequest(p: PendingRequest): boolean {
+  return p.stack.some((f) => f.includes("ServerAdminHandler"));
 }
 
 /**
@@ -1012,19 +1032,44 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
   const propertiesVersions = groupValues(all, (s) => s.propertiesVersion);
   const distinctInstanceIds = new Set(all.map((s) => s.instanceId));
 
-  // ── Pending requests + hot frames ──
+  // ── Pending requests + hot frames / hot stacks ──
   const pendingOccurrences: PendingRequestOccurrence[] = [];
   const frameCounts = new Map<string, number>();
+  const stackCounts = new Map<string, { frames: string[]; count: number }>();
+  let hotStackSampleSize = 0;
   for (const s of all) {
     for (const p of s.pendingRequests) {
+      // Every in-flight request stays in the table, including the poller's own.
       pendingOccurrences.push({ ...p, time: s.time, instanceId: s.instanceId, fileName: s.fileName });
+
+      // The hot lists are frequency rankings, so the poller's request - present once per
+      // dump by construction - is left out of them rather than ranked as a finding.
+      if (!p.stack.length || isSelfStatusRequest(p)) continue;
+      hotStackSampleSize++;
+
       // Count each distinct frame once per stack so a recursive call can't dominate.
       for (const frame of new Set(appFrames(p.stack))) incr(frameCounts, frame);
+
+      // Signature: the literal top of the stack, with line numbers dropped from the key so
+      // the same function path caught on a different line groups together. Recursion is
+      // deliberately not collapsed - the window is exactly the first N lines.
+      const top = p.stack.slice(0, STACK_SIGNATURE_DEPTH).map(normalizeFrame);
+      const key = top.map((f) => f.split("(")[0]).join("\n");
+      const entry = stackCounts.get(key);
+      if (entry) entry.count++;
+      else stackCounts.set(key, { frames: top, count: 1 });
     }
   }
   const topPendingRequests = topN(pendingOccurrences, MAX_PENDING_REQUESTS, (p) => p.elapsedMs);
   const hotFrames = topN([...frameCounts.entries()], MAX_HOT_FRAMES, ([, c]) => c).map(
     ([frame, count]) => ({ frame, count })
+  );
+  const hotStacks: HotStack[] = topN([...stackCounts.values()], MAX_HOT_STACKS, (e) => e.count).map(
+    (e) => ({
+      frames: e.frames,
+      count: e.count,
+      pct: hotStackSampleSize ? (e.count / hotStackSampleSize) * 100 : 0,
+    })
   );
 
   // ── Cache rollups. Every figure is averaged across the snapshots that reported it,
@@ -1265,6 +1310,8 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     },
     topPendingRequests,
     hotFrames,
+    hotStacks,
+    hotStackSampleSize,
     threadStates: all.map((s) => ({
       time: s.time,
       instanceId: s.instanceId,
@@ -1335,6 +1382,7 @@ const PROMPT_TRANSFORMS = 20;
 const PROMPT_CACHE_URLS = 20;
 const PROMPT_CACHE_KEY_PARAMS = 25;
 const PROMPT_URL_PATTERNS = 20;
+const PROMPT_HOT_STACKS = 8;
 
 function isoOrUnknown(time: number): string {
   return Number.isFinite(time) ? new Date(time).toISOString() : "unknown";
@@ -1401,6 +1449,8 @@ export function toPromptPayload(a: StatusAnalysis): StatusPromptPayload {
       stack: p.stack.slice(0, PROMPT_STACK_FRAMES),
     })),
     hotFrames: a.hotFrames,
+    hotStacks: a.hotStacks.slice(0, PROMPT_HOT_STACKS),
+    hotStackSampleSize: a.hotStackSampleSize,
     cacheRollup: a.cacheRollup,
     ehCacheRollup: a.ehCacheRollup,
     httpCache: {

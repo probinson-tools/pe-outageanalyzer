@@ -7,7 +7,11 @@ import type { PendingRequestOccurrence, StatusAnalysis } from "@/lib/types";
 interface Props {
   requests: PendingRequestOccurrence[];
   hotFrames: StatusAnalysis["hotFrames"];
+  hotStacks: StatusAnalysis["hotStacks"];
+  hotStackSampleSize: number;
 }
+
+const HOT_STACK_ROWS = 8;
 
 function fmtElapsed(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
@@ -29,8 +33,11 @@ function cleanFrame(frame: string): string {
   return frame.replace(/^(?:app\/\/|java\.base@[\d.]+\/)/, "");
 }
 
-export default function PendingRequestsTable({ requests, hotFrames }: Props) {
+export default function PendingRequestsTable({ requests, hotFrames, hotStacks, hotStackSampleSize }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedStack, setExpandedStack] = useState<number | null>(null);
+  const [showAllStacks, setShowAllStacks] = useState(false);
+  const visibleStacks = showAllStacks ? hotStacks : hotStacks.slice(0, HOT_STACK_ROWS);
 
   if (!requests.length) {
     return (
@@ -78,6 +85,70 @@ export default function PendingRequestsTable({ requests, hotFrames }: Props) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {hotStacks.length > 0 && (
+        <div className="mb-5 rounded-xl bg-white/3 border border-white/8 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+            Hottest application stacks across in-flight threads
+          </p>
+          <p className="text-slate-500 text-xs mb-3 leading-relaxed">
+            In-flight threads grouped by the first 10 lines of their stack — what each one was
+            executing at the moment of the dump. Each dump is a sample, so the sequences that turn up
+            most often are where the time is going. A socket read or <span className="font-mono">park</span>{" "}
+            on top means the thread is waiting (on an origin, or on a lock or pool); application code
+            on top means it is actively computing. Shares are of {hotStackSampleSize.toLocaleString()}{" "}
+            in-flight threads, excluding the poller&rsquo;s own status request.
+          </p>
+          <div className="space-y-1">
+            {visibleStacks.map((st, i) => {
+              const isOpen = expandedStack === i;
+              return (
+                <div key={i} className="rounded-lg hover:bg-white/3">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedStack(isOpen ? null : i)}
+                    className="w-full flex items-start gap-3 text-left px-1 py-1"
+                  >
+                    <span className="text-slate-500 text-xs w-12 shrink-0 text-right tabular-nums pt-px">
+                      {st.count.toLocaleString()}×
+                    </span>
+                    <span className="text-slate-600 text-xs w-10 shrink-0 text-right tabular-nums pt-px">
+                      {st.pct.toFixed(0)}%
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-mono text-[11px] text-slate-300 truncate" title={st.frames[0]}>
+                        {st.frames[0]}
+                      </span>
+                      {st.frames[1] && (
+                        <span className="block font-mono text-[11px] text-slate-600 truncate" title={st.frames[1]}>
+                          ← {st.frames[1]}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-blue-400 text-[11px] shrink-0 pt-px">
+                      {isOpen ? "Hide" : `${st.frames.length} frames`}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <pre className="mx-1 mb-2 max-h-72 overflow-auto scrollbar-thin rounded-lg bg-[#0F1117] border border-white/8 p-3 text-[11px] leading-relaxed text-slate-400 font-mono whitespace-pre">
+                      {st.frames.map(cleanFrame).join("\n")}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {hotStacks.length > HOT_STACK_ROWS && (
+            <button
+              type="button"
+              onClick={() => setShowAllStacks(!showAllStacks)}
+              className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+            >
+              {showAllStacks ? `Show top ${HOT_STACK_ROWS}` : `Show all ${hotStacks.length}`}
+            </button>
+          )}
         </div>
       )}
 

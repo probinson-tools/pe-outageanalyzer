@@ -160,7 +160,12 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
         metrics={ERROR_METRICS}
       />
 
-      <PendingRequestsTable requests={analysis.topPendingRequests} hotFrames={analysis.hotFrames} />
+      <PendingRequestsTable
+        requests={analysis.topPendingRequests}
+        hotFrames={analysis.hotFrames}
+        hotStacks={analysis.hotStacks}
+        hotStackSampleSize={analysis.hotStackSampleSize}
+      />
 
       <StatusChart
         {...chartProps}

@@ -482,6 +482,23 @@ export interface CacheKeyParam {
   likelyTracking: boolean;
 }
 
+/**
+ * A group of in-flight threads whose stacks share the same top of stack.
+ *
+ * In-flight threads are a sample of what the server is doing at the moment of each dump,
+ * so this works like a sampling profiler: the sequence that turns up most often is where
+ * the time is going. Only the first STACK_SIGNATURE_DEPTH lines are compared - the whole
+ * stack would be too unique to group - and line numbers are ignored, so the same function
+ * path caught on a different line still counts as one.
+ */
+export interface HotStack {
+  /** A representative stack top, prefix-stripped, line numbers kept. */
+  frames: string[];
+  count: number;
+  /** Share of the in-flight sample, 0-100. */
+  pct: number;
+}
+
 export interface PendingRequestOccurrence extends PendingRequest {
   time: number;
   instanceId: string;
@@ -507,6 +524,9 @@ export interface StatusAnalysis {
 
   topPendingRequests: PendingRequestOccurrence[];
   hotFrames: { frame: string; count: number }[];
+  hotStacks: HotStack[];
+  /** In-flight stacks the hot lists were computed over (the poller's own request excluded). */
+  hotStackSampleSize: number;
   threadStates: { time: number; instanceId: string; byState: Record<string, number> }[];
 
   cacheRollup: CacheRollup[];
@@ -606,6 +626,8 @@ export interface StatusPromptPayload {
     stack: string[];
   }[];
   hotFrames: { frame: string; count: number }[];
+  hotStacks: HotStack[];
+  hotStackSampleSize: number;
   cacheRollup: CacheRollup[];
   ehCacheRollup: EhCacheRollup[];
   httpCache: StatusAnalysis["httpCacheTotals"] & { topUrls: HttpCacheUrlRollup[] };
