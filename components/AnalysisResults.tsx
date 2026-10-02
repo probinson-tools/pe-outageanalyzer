@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import type { AnalysisResult, ParsedLogSummary } from "@/lib/types";
 import SummaryCards from "./results/SummaryCards";
+import ExportForClaude from "./results/ExportForClaude";
 import ErrorTable from "./results/ErrorTable";
 import TrafficSources from "./results/TrafficSources";
 import TopUrlPatterns from "./results/TopUrlPatterns";
@@ -24,11 +25,18 @@ interface Props {
 export default function AnalysisResults({ summary, outageTime, aiResult, aiLoading }: Props) {
   return (
     <div className="space-y-8">
-      {/* Section header */}
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-white/8"></div>
-        <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Analysis Report</span>
-        <div className="h-px flex-1 bg-white/8"></div>
+      {/* Section header, with the export — available as soon as parsing finishes */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-white/8"></div>
+          <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Analysis Report</span>
+          <div className="h-px flex-1 bg-white/8"></div>
+          <ExportForClaude summary={summary} outageTime={outageTime} />
+        </div>
+        <p className="text-right text-slate-600 text-[11px]">
+          Export a brief for a Claude chat with the Atlassian connector enabled — it draws on your memory and the
+          Confluence KB.
+        </p>
       </div>
 
       {/* Summary cards — real, parsed stats */}
