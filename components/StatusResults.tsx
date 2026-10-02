@@ -15,6 +15,8 @@ import CacheUrlPatterns from "./status/CacheUrlPatterns";
 import TransformStats from "./status/TransformStats";
 import Synopsis from "./results/Synopsis";
 import Recommendations from "./results/Recommendations";
+import ExportForClaude from "./results/ExportForClaude";
+import { buildStatusClaudeBrief, statusBriefFileName } from "@/lib/statusClaudeExport";
 
 // recharts v3 is ESM-only; every chart must be client-loaded or the build breaks.
 const StatusChart = dynamic(() => import("./status/StatusChart"), { ssr: false });
@@ -59,11 +61,21 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
 
   return (
     <div className="space-y-8">
-      {/* Section header */}
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-white/8"></div>
-        <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Server Status Report</span>
-        <div className="h-px flex-1 bg-white/8"></div>
+      {/* Section header, with the export — available as soon as parsing finishes */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-white/8"></div>
+          <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Server Status Report</span>
+          <div className="h-px flex-1 bg-white/8"></div>
+          <ExportForClaude
+            getBrief={() => buildStatusClaudeBrief(analysis, incidentTime ?? "")}
+            fileName={() => statusBriefFileName(analysis)}
+          />
+        </div>
+        <p className="text-right text-slate-600 text-[11px]">
+          Export a brief for a Claude chat with the Atlassian connector enabled — it draws on your memory and the
+          Confluence KB.
+        </p>
       </div>
 
       <StatusSummaryCards analysis={analysis} />

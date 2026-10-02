@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { AnalysisResult, ParsedLogSummary } from "@/lib/types";
 import SummaryCards from "./results/SummaryCards";
 import ExportForClaude from "./results/ExportForClaude";
+import { buildClaudeBrief, claudeBriefFileName } from "@/lib/claudeExport";
 import ErrorTable from "./results/ErrorTable";
 import TrafficSources from "./results/TrafficSources";
 import TopUrlPatterns from "./results/TopUrlPatterns";
@@ -31,7 +32,10 @@ export default function AnalysisResults({ summary, outageTime, aiResult, aiLoadi
           <div className="h-px flex-1 bg-white/8"></div>
           <span className="text-slate-500 text-xs font-semibold uppercase tracking-widest px-2">Analysis Report</span>
           <div className="h-px flex-1 bg-white/8"></div>
-          <ExportForClaude summary={summary} outageTime={outageTime} />
+          <ExportForClaude
+            getBrief={() => buildClaudeBrief(summary, outageTime ?? "")}
+            fileName={() => claudeBriefFileName(summary)}
+          />
         </div>
         <p className="text-right text-slate-600 text-[11px]">
           Export a brief for a Claude chat with the Atlassian connector enabled — it draws on your memory and the

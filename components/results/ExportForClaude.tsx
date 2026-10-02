@@ -1,20 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { buildClaudeBrief, claudeBriefFileName } from "@/lib/claudeExport";
-import type { ParsedLogSummary } from "@/lib/types";
 
 interface Props {
-  summary: ParsedLogSummary;
-  outageTime?: string;
+  /** Built on click rather than per render — a brief over hundreds of dumps isn't free. */
+  getBrief: () => string;
+  fileName: () => string;
 }
 
-export default function ExportForClaude({ summary, outageTime }: Props) {
+export default function ExportForClaude({ getBrief, fileName }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(buildClaudeBrief(summary, outageTime ?? ""));
+      await navigator.clipboard.writeText(getBrief());
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -23,11 +22,11 @@ export default function ExportForClaude({ summary, outageTime }: Props) {
   };
 
   const handleDownload = () => {
-    const blob = new Blob([buildClaudeBrief(summary, outageTime ?? "")], { type: "text/markdown;charset=utf-8" });
+    const blob = new Blob([getBrief()], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = claudeBriefFileName(summary);
+    a.download = fileName();
     document.body.appendChild(a);
     a.click();
     a.remove();
