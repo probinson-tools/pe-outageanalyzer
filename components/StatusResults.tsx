@@ -36,6 +36,7 @@ const THROUGHPUT_METRICS: Metric[] = [
   { key: "avgRespPage", name: "Avg page response (s)", color: "#34d399" },
 ];
 const THREAD_METRICS: Metric[] = [{ key: "threadCount", name: "Threads", color: "#60a5fa" }];
+const IN_FLIGHT_METRICS: Metric[] = [{ key: "inFlightCount", name: "In-flight requests", color: "#fb923c" }];
 const POOL_METRICS: Metric[] = [
   { key: "connLeased", name: "Leased", color: "#fbbf24" },
   { key: "connAvailable", name: "Available", color: "#34d399" },
@@ -170,6 +171,13 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
         title="Interval Errors"
         subtitle="Errors counted in each instance's own rolling window, whose length varies per snapshot — see the interval request rate above for how much history each window covers"
         metrics={ERROR_METRICS}
+      />
+
+      <StatusChart
+        {...chartProps}
+        title="In-Flight Request Count"
+        subtitle="Requests still being processed at each snapshot — a rising count means requests are arriving faster than they finish. Excludes the poller's own status request, which is in flight in every dump."
+        metrics={IN_FLIGHT_METRICS}
       />
 
       <PendingRequestsTable

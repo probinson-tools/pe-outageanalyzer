@@ -130,7 +130,7 @@ export function buildStatusClaudeBrief(a: StatusAnalysis, incidentTime: string):
       (step > 1
         ? `${points.length} of ${a.snapshotCount} snapshots — every ${step}th per instance, plus each instance's last and any taken just after a restart. `
         : `All ${points.length} snapshots. `) +
-        "Times are UTC from each dump. Req/s since start is the lifetime average; interval req/s is the rolling window. GC ms/min is computed between consecutive snapshots of the same instance and is blank at a series start or across a restart. Interval error counts are in the summary above.",
+        "Times are UTC from each dump. Req/s since start is the lifetime average; interval req/s is the rolling window. GC ms/min is computed between consecutive snapshots of the same instance and is blank at a series start or across a restart. In-flight excludes the poller's own status request. Interval error counts are in the summary above.",
       "",
       "| Time (UTC) | Instance | Heap % | Threads | Req/s since start | Interval req/s | Avg page (s) | GC ms/min | Pool leased / avail / pending | In-flight | Note |",
       "|---|---|---|---|---|---|---|---|---|---|---|"
@@ -142,7 +142,7 @@ export function buildStatusClaudeBrief(a: StatusAnalysis, incidentTime: string):
           2
         )} | ${num(p.avgRespPage, 3)} | ${num(p.gcMsPerMin)} | ${num(p.connLeased)} / ${num(p.connAvailable)} / ${num(
           p.connPending
-        )} | ${p.pendingCount} | ${p.restartedSincePrevious ? "restarted" : ""} |`
+        )} | ${p.inFlightCount} | ${p.restartedSincePrevious ? "restarted" : ""} |`
       );
     }
     push("");

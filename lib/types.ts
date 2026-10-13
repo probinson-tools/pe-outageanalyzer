@@ -314,6 +314,12 @@ export interface StatusSeriesPoint {
   intervalWindowMin: number | null;
   avgRespPage: number | null;
   pendingCount: number;
+  /**
+   * In-flight requests excluding the poller's own status-page request, which is pending in
+   * every dump because it is the request producing the dump. Without this, every snapshot
+   * carries a floor of 1 that says nothing about the server.
+   */
+  inFlightCount: number;
   connLeased: number | null;
   connPending: number | null;
   connAvailable: number | null;

@@ -671,6 +671,7 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
     intervalWindowMin: ivWindow,
     avgRespPage: s.avgResponse.page,
     pendingCount: s.pendingRequests.length,
+    inFlightCount: s.pendingRequests.filter((p) => !isSelfStatusRequest(p)).length,
     connLeased: s.httpClientPool?.leased ?? null,
     connPending: s.httpClientPool?.pending ?? null,
     connAvailable: s.httpClientPool?.available ?? null,
