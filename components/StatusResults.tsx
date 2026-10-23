@@ -30,8 +30,12 @@ interface Props {
 
 const HEAP_METRICS: Metric[] = [{ key: "heapUsedPct", name: "Heap Used %", color: "#a855f7" }];
 const GC_METRICS: Metric[] = [{ key: "gcMsPerMin", name: "GC ms per minute", color: "#ef4444" }];
+const REQUEST_RATE_METRICS: Metric[] = [
+  { key: "rpsPage", name: "Pages / sec", color: "#60a5fa" },
+  { key: "rpsFile", name: "Files / sec", color: "#a855f7" },
+  { key: "rps", name: "Total / sec", color: "#e2e8f0" },
+];
 const THROUGHPUT_METRICS: Metric[] = [
-  { key: "rps", name: "Requests / sec (since start)", color: "#60a5fa" },
   { key: "intervalRps", name: "Interval requests / sec", color: "#fbbf24" },
   { key: "avgRespPage", name: "Avg page response (s)", color: "#34d399" },
 ];
@@ -147,8 +151,16 @@ export default function StatusResults({ analysis, incidentTime, aiResult, aiLoad
 
       <StatusChart
         {...chartProps}
-        title="Throughput & Response Time"
-        subtitle="Two request rates and the average page response time. The first is the lifetime average since the instance started, so it moves slowly; the second is derived from the server's rolling interval counter (Total requests: N in M min) and tracks recent load much more closely. That window is not fixed — a short one covers little history and gives a spikier reading."
+        title="Requests per Second"
+        subtitle="Pages, files and total requests per second, as each instance reports them: the average since that instance started, so it moves slowly. Total also includes plugin requests, usually close to zero. Only this lifetime rate is broken down by type — the rolling interval rate below has no page/file split in the dump."
+        metrics={REQUEST_RATE_METRICS}
+        linesPer="metric"
+      />
+
+      <StatusChart
+        {...chartProps}
+        title="Recent Throughput & Response Time"
+        subtitle="Requests per second over the server's own rolling interval counter (Total requests: N in M min), which tracks recent load far more closely than the lifetime rate above, and the average page response time. That window is not fixed — a short one covers little history and gives a spikier reading."
         metrics={THROUGHPUT_METRICS}
       />
 

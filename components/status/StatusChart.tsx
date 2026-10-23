@@ -40,6 +40,12 @@ interface Props {
   height?: number;
   /** Rendered when no point in the data carries a value for any metric. */
   emptyNote?: string;
+  /**
+   * What each line stands for in per-instance mode. "instance" (default): one small chart
+   * per metric, one line per instance. "metric": one small chart per instance, one line per
+   * metric — for metrics meant to be read together, like a breakdown and its total.
+   */
+  linesPer?: "instance" | "metric";
 }
 
 /**
@@ -94,6 +100,7 @@ export default function StatusChart({
   aggregate,
   height = 260,
   emptyNote,
+  linesPer = "instance",
 }: Props) {
   if (!aggregate.length) return null;
 
@@ -110,6 +117,15 @@ export default function StatusChart({
   }
 
   const singlePoint = aggregate.length === 1;
+  // Legend in the order the metrics were declared, not recharts' default alphabetical sort —
+  // so a breakdown reads parts-then-total rather than "Files, Pages, Total".
+  const metricOrder = (item: { dataKey?: unknown }) => populated.findIndex((m) => String(m.key) === String(item.dataKey));
+  const times = aggregate.map((p) => p.time);
+  const sharedTime: [number, number] = [Math.min(...times), Math.max(...times)];
+  const sharedMax = Math.max(
+    0,
+    ...aggregate.flatMap((p) => populated.map((m) => p[m.key]).filter((v): v is number => typeof v === "number"))
+  );
 
   return (
     <div className="glass rounded-2xl p-6">
@@ -130,7 +146,7 @@ export default function StatusChart({
             />
             <YAxis stroke={AXIS_STROKE} tick={AXIS_TICK} />
             <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={formatTimestamp} />
-            <Legend wrapperStyle={LEGEND_STYLE} />
+            <Legend wrapperStyle={LEGEND_STYLE} itemSorter={metricOrder} />
             {populated.map((m) => (
               <Line
                 key={String(m.key)}
@@ -145,6 +161,49 @@ export default function StatusChart({
             ))}
           </LineChart>
         </ResponsiveContainer>
+      ) : linesPer === "metric" ? (
+        // One small multiple per instance, each carrying every metric. Axes are shared so the
+        // instances can be compared directly — each chart rescaling itself would make a
+        // quiet instance look as busy as a loaded one.
+        <div className="space-y-6">
+          {instances
+            .filter((inst) => hasAnyValue(inst.points, populated))
+            .map((inst) => (
+              <div key={inst.key}>
+                {instances.length > 1 && (
+                  <p className="text-slate-400 text-xs font-medium mb-2">{instanceLabel(inst)}</p>
+                )}
+                <ResponsiveContainer width="100%" height={height}>
+                  <LineChart data={inst.points} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                    <XAxis
+                      dataKey="time"
+                      type="number"
+                      domain={sharedTime}
+                      tickFormatter={formatTick}
+                      stroke={AXIS_STROKE}
+                      tick={AXIS_TICK}
+                    />
+                    <YAxis domain={[0, Math.ceil(sharedMax * 1.1) || 1]} stroke={AXIS_STROKE} tick={AXIS_TICK} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={formatTimestamp} />
+                    <Legend wrapperStyle={LEGEND_STYLE} itemSorter={metricOrder} />
+                    {populated.map((m) => (
+                      <Line
+                        key={String(m.key)}
+                        type="monotone"
+                        dataKey={String(m.key)}
+                        name={m.name}
+                        stroke={m.color}
+                        strokeWidth={2}
+                        dot={{ r: 2.5 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+        </div>
       ) : (
         // Per-instance mode draws one small multiple per metric so that N instances ×
         // M metrics never collapses into an unreadable tangle on a single axis.

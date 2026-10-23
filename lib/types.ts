@@ -304,6 +304,9 @@ export interface StatusSeriesPoint {
   completedTotal: number | null;
   /** Lifetime average req/s the server reports, over the whole run since start. */
   rps: number | null;
+  /** The same lifetime average split by request type (plugin requests make up the rest). */
+  rpsPage: number | null;
+  rpsFile: number | null;
   /**
    * Requests per second over the server's own rolling interval window, derived from
    * "Total requests: N in Mmin". Far more responsive than the lifetime average, but the

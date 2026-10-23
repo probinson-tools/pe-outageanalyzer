@@ -667,6 +667,8 @@ function toPoint(s: StatusSnapshot, instanceKey: string): StatusSeriesPoint {
     gcTimeMs: s.gc?.collectionTimeMs ?? null,
     completedTotal: s.completed.total,
     rps: s.load.total,
+    rpsPage: s.load.page,
+    rpsFile: s.load.file,
     intervalRps,
     intervalWindowMin: ivWindow,
     avgRespPage: s.avgResponse.page,
