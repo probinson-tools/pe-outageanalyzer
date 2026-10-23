@@ -130,14 +130,14 @@ export function buildStatusClaudeBrief(a: StatusAnalysis, incidentTime: string):
       (step > 1
         ? `${points.length} of ${a.snapshotCount} snapshots — every ${step}th per instance, plus each instance's last and any taken just after a restart. `
         : `All ${points.length} snapshots. `) +
-        "Times are UTC from each dump. Req/s since start is the lifetime average; interval req/s is the rolling window. GC ms/min is computed between consecutive snapshots of the same instance and is blank at a series start or across a restart. In-flight excludes the poller's own status request. Interval error counts are in the summary above.",
+        "Times are UTC from each dump. Req/s since start is the lifetime average, split pages / files / total (total also counts plugin requests, usually near zero); interval req/s is the rolling window and has no page/file split in the dump. GC ms/min is computed between consecutive snapshots of the same instance and is blank at a series start or across a restart. In-flight excludes the poller's own status request. Interval error counts are in the summary above.",
       "",
-      "| Time (UTC) | Instance | Heap % | Threads | Req/s since start | Interval req/s | Avg page (s) | GC ms/min | Pool leased / avail / pending | In-flight | Note |",
+      "| Time (UTC) | Instance | Heap % | Threads | Req/s since start: pages / files / total | Interval req/s | Avg page (s) | GC ms/min | Pool leased / avail / pending | In-flight | Note |",
       "|---|---|---|---|---|---|---|---|---|---|---|"
     );
     for (const p of points) {
       push(
-        `| ${utc(p.time)} | ${p.instanceId} | ${num(p.heapUsedPct, 1)} | ${num(p.threadCount)} | ${num(p.rps, 2)} | ${num(
+        `| ${utc(p.time)} | ${p.instanceId} | ${num(p.heapUsedPct, 1)} | ${num(p.threadCount)} | ${num(p.rpsPage, 2)} / ${num(p.rpsFile, 2)} / ${num(p.rps, 2)} | ${num(
           p.intervalRps,
           2
         )} | ${num(p.avgRespPage, 3)} | ${num(p.gcMsPerMin)} | ${num(p.connLeased)} / ${num(p.connAvailable)} / ${num(
