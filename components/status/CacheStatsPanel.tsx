@@ -188,12 +188,13 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
           </h3>
           <p className="text-slate-500 text-xs mb-5">
             Counters are cumulative since each instance started, so no single snapshot describes the
-            pool. Gets, misses, evictions and on-heap size are <span className="text-slate-400">fleet
+            pool. Gets, misses, evictions and on- and off-heap size are <span className="text-slate-400">fleet
             totals</span>: each instance&rsquo;s readings are averaged, then those averages summed.
             The smaller figure beneath each total is the per-instance range, so a wide spread means
             the work is landing unevenly across the backends. The hit rate is volume-weighted and derived from
             the same totals, not an average of the per-instance percentages. Evictions mean the cache
-            is sized below its working set.
+            is sized below its working set. A cache lives either on or off the JVM heap: when On Heap
+            reads 0, its real size is the Off Heap figure, which uses process memory outside -Xmx.
           </p>
 
           <div className="overflow-x-auto">
@@ -206,6 +207,7 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                   <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Misses</th>
                   <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Evictions</th>
                   <th className="pb-2 pr-4 font-semibold whitespace-nowrap">On Heap</th>
+                  <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Off Heap</th>
                   <th className="pb-2 font-semibold whitespace-nowrap">TTL</th>
                 </tr>
               </thead>
@@ -243,6 +245,9 @@ export default function CacheStatsPanel({ caches, ehCaches, staticCaches, multiS
                     </td>
                     <td className="py-2.5 pr-4 text-slate-300 text-xs">
                       <Fleet stat={e.onHeapBytes} format={mb} />
+                    </td>
+                    <td className="py-2.5 pr-4 text-slate-300 text-xs">
+                      <Fleet stat={e.offHeapBytes} format={mb} />
                     </td>
                     <td className="py-2.5 text-slate-500 text-xs">{e.creationExpiry ?? "—"}</td>
                   </tr>

@@ -428,6 +428,13 @@ export interface EhCacheRollup {
   evictions: FleetStat;
   /** Null when every reading was -1, i.e. on-heap sizing is off for this cache. */
   onHeapBytes: FleetStat | null;
+  /**
+   * Bytes held off the JVM heap. A cache lives in one tier or the other: an off-heap cache
+   * reports 0 on heap, so on-heap alone makes it look empty. Seen off-heap on both
+   * 22.47.13-HOTFIX2 and 23.0.0 servers, on-heap on 22.46.9 — read the tier from the data,
+   * not the version. Null when every reading was negative (unavailable).
+   */
+  offHeapBytes: FleetStat | null;
   creationExpiry: string | null;
   samples: number;
 }

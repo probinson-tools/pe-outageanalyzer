@@ -1123,6 +1123,7 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
     misses: number[];
     evictions: number[];
     onHeap: number[];
+    offHeap: number[];
   }
   const ehByName = new Map<string, { byInstance: Map<string, EhReadings>; expiry: string | null; samples: number }>();
 
@@ -1138,7 +1139,7 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
 
       let r = entry.byInstance.get(s.instanceId);
       if (!r) {
-        r = { gets: [], hits: [], misses: [], evictions: [], onHeap: [] };
+        r = { gets: [], hits: [], misses: [], evictions: [], onHeap: [], offHeap: [] };
         entry.byInstance.set(s.instanceId, r);
       }
       r.gets.push(e.gets);
@@ -1147,6 +1148,7 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
       r.evictions.push(e.evictions);
       // -1 means on-heap sizing is disabled for that cache; it is not a size of zero.
       if (e.onHeapBytes >= 0) r.onHeap.push(e.onHeapBytes);
+      if (e.offHeapBytes >= 0) r.offHeap.push(e.offHeapBytes);
     }
   }
 
@@ -1177,6 +1179,9 @@ export function mergeSnapshots(snapshots: StatusSnapshot[]): StatusAnalysis {
         evictions: fleetStat(instances.map((r) => r.evictions)),
         onHeapBytes: instances.some((r) => r.onHeap.length)
           ? fleetStat(instances.map((r) => r.onHeap))
+          : null,
+        offHeapBytes: instances.some((r) => r.offHeap.length)
+          ? fleetStat(instances.map((r) => r.offHeap))
           : null,
         creationExpiry: entry.expiry,
         samples: entry.samples,
